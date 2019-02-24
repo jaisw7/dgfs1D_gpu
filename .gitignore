@@ -25,3 +25,5 @@ doc/build/
 back/
 bench/
 __pycache__
+
+.README
