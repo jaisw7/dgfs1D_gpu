@@ -12,7 +12,7 @@ From a DG perspective, we use two methodologies:
 
 From a basis perspective:
 
-> By exploiting the sparse structure of the underlying matrices using SVD decomposition, the scheme has the complexity of \sum_{m} R_m MN^4 log(N), where R_m is the rank of "constant" matrix H (see **[Jaiswal 2019a]**). As a direct consequence of SVD decomposition, the collocation scheme results in a scheme with a complexity of K MN^4 log(N), where K is the number of coefficients in the local element expansion. For classical modal basis, \sum_{m} R_m < K^2, while for the modified orthogonal basis (see **[Karniadakis 1999]**), \sum_{m} R_m = K^2. Note that the code automatically identifies the sparsity, and adjusts the complexity of the scheme depending on the basis in use. Other basis can be straightforwardly incorporated by introducing a new class in *basis.py*. 
+> By exploiting the sparse structure of the underlying matrices using SVD decomposition, the scheme has the complexity of \sum_{m} R_m M N_rho N^3 log(N), where R_m is the rank of "constant" matrix H (see **[Jaiswal 2019a]**), where  is the number of discretization points in each velocity dimension, N_rho ~ O(N) is the number of discretization points in the radial direction needed for low-rank decomposition **[Gamba 2017]**, and M is the number of discretization points on the sphere. As a direct consequence of SVD decomposition, the collocation scheme results in a scheme with a complexity of K MN^4 log(N), where K is the number of coefficients in the local element expansion. For classical modal basis, \sum_{m} R_m < K^2, while for the modified orthogonal basis (see **[Karniadakis 1999]**), \sum_{m} R_m = K^2. Note that the code automatically identifies the sparsity, and adjusts the complexity of the scheme depending on the basis in use. Other basis can be straightforwardly incorporated by introducing a new class in *basis.py*. 
 <br/>
 
 From a time integration perspective, we use: 
@@ -75,6 +75,33 @@ The overall DGFS method is simple from mathematical and implementation perspecti
 #### Multi species: see examples/bi directory
 > Replace *dgfsStd1D* by *dgfsBi1D* in the aforementioned examples
 
+* **Benchmark**: Performance of the solver for Couette flow test cases. The phase-space is defined using a convenient triplet notation **Ne/K/N^3**,
+which corresponds to *Ne* elements in physical space, *K* order nodal DG (equivalently Np = K − 1 order polynomial for 1-D domain), and **N^3** points
+in velocity space. n*G* (n > 1) denotes GPU/CUDA/MPI/parallel execution on n GPUs shared equally across (n/3) nodes. **Work units represent
+the total simulation time for first 52 timesteps**. Efficiency is defined as ratio (1*G*/n*G*)/n, where 1*G* and n*G* are execution-times on one GPU
+and n GPU respectively. M = 12 and N_rho = 8 is used for all cases
+
+| Phase Space | Work Units (s) |         |         |         |         |        |        | Efficiency |       |       |        |        |        |
+|:-----------:|:--------------:|:-------:|:-------:|:-------:|:-------:|:------:|:------:|:----------:|:-----:|:-----:|:------:|:------:|:------:|
+|             |       1G       |    3G   |    6G   |    9G   |   12G   |   24G  |   36G  |    1G/3G   | 1G/6G | 1G/9G | 1G/12G | 1G/24G | 1G/36G |
+|  72/3/20^3  |      47.58     |  16.155 |  8.339  |  5.698  |  4.392  |  2.423 |  1.774 |    0.98    |  0.95 |  0.93 |   0.9  |  0.82  |  0.84  |
+|  72/3/32^3  |     126.601    |  42.616 |  21.551 |  14.563 |  11.038 |  5.784 |  4.03  |    0.99    |  0.98 |  0.97 |  0.96  |  0.91  |  0.98  |
+|  72/3/48^3  |     391.943    | 131.081 |  65.913 |  44.218 |  33.513 | 17.224 | 11.621 |      1     |  0.99 |  0.98 |  0.97  |  0.95  |  1.05  |
+|  72/6/20^3  |     94.682     |  31.957 |  16.197 |  10.944 |  8.331  |  4.392 |  30.79 |    0.99    |  0.97 |  0.96 |  0.95  |   0.9  |  0.96  |
+|  72/6/32^3  |     253.016    |  84.834 |  42.741 |  28.697 |  21.703 | 11.158 |  7.693 |    0.99    |  0.99 |  0.98 |  0.97  |  0.94  |  1.03  |
+|  72/6/48^3  |     782.343    | 261.601 | 131.217 |  87.755 |  66.009 |  33.52 | 22.509 |      1     |  0.99 |  0.99 |  0.99  |  0.97  |  1.09  |
+|  216/3/20^3 |     141.754    |  47.641 |  24.033 |  16.182 |  12.326 |  6.356 |  4.388 |    0.99    |  0.98 |  0.97 |  0.96  |  0.93  |  1.01  |
+|  216/3/32^3 |     378.956    | 126.853 |  63.676 |  42.636 |  32.066 | 16.295 | 11.041 |      1     |  0.99 |  0.99 |  0.98  |  0.97  |  1.07  |
+|  216/3/48^3 |    1172.907    | 391.916 | 196.439 | 131.153 |  98.538 | 49.652 | 33.471 |      1     |   1   |   1   |  0.99  |  0.98  |   1.1  |
+|  216/6/20^3 |     283.091    |  94.737 |  47.679 |  31.903 |  24.06  | 12.262 |  8.32  |      1     | 0.99  |  0.99 |  0.98  |  0.96  |  1.06  |
+|  216/6/32^3 |     759.149    | 253.498 | 127.004 |  84.932 |  63.78  | 32.212 | 21.672 |      1     |   1   |   1   |  0.99  |  0.98  |  1.09  |
+|  216/6/48^3 |    2347.099    | 783.642 |  392.47 | 261.817 | 196.552 |  98.68 | 66.018 |      1     |   1   |   1   |    1   |  0.99  |  1.11  |
+
+**Hardware**: Serial and parallel implementations of multi-species DGFS solver are run on 15-node Brown-GPU RCAC cluster at Purdue University.
+Each node is equipped with two 12-core Intel Xeon Gold 6126 CPU, and three Tesla-P100 GPU. The operating system used is 64-bit
+CentOS 7.4.1708 (Core) with NVIDIA Tesla-P100 GPU accompanying CUDA driver 8.0 and CUDA runtime 8.0. The GPU has 10752 CUDA cores, 
+16GB device memory, and compute capability of 6.0.The solver has been written in Python/PyCUDA and is compiled using OpenMPI 2.1.0, 
+g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the simulations are done with double precision floating point values.
 
 ### References:
 * **[Karniadakis 1999]** Karniadakis, George, and Spencer Sherwin. 
