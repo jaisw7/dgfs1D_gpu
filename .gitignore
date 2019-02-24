@@ -1,0 +1,27 @@
+# Python crud
+*.pyc
+*.pyo
+
+# Distfiles related goo
+MANIFEST
+dist/
+build/
+dgfs1D.egg-info/
+
+# Documentation
+doc/build/
+
+# Solution files
+*.txt
+*.h5*
+
+*.gz
+*.txt
+*.lpk
+*.png
+*.log
+*.dat
+
+back/
+bench/
+__pycache__
