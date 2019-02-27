@@ -117,3 +117,133 @@ class DGFSPeriodicBCBi(DGFSBCBi):
                             )  
         self._applyBCKern = [self._applyBCKern]*vm.nspcs() 
 
+
+# enforces the purely diffuse wall boundary condition
+class DGFSWallExprDiffuseBCBi(DGFSBCBi):
+    type = 'dgfs-wall-expr-diffuse'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        #initcondcls = subclass_where(DGFSInitConditionBi, model='maxwellian')
+        #bc = initcondcls(cfg, self._vm, cfgsect, wall=True)
+        #f0 = bc.get_init_vals()
+        #self._d_bnd_f0 = [gpuarray.to_gpu(f.ravel()) for f in f0]
+        #unondim = bc.unondim()
+
+        #ndenini = 1.
+        ux = cfg.lookupexpr(cfgsect, 'ux')
+        uy = cfg.lookupexpr(cfgsect, 'uy')
+        uz = cfg.lookupexpr(cfgsect, 'uz')
+        T = cfg.lookupexpr(cfgsect, 'T')
+        ux = '((' + ux + ')/' + str(self._vm.u0()) + ')'
+        uy = '((' + uy + ')/' + str(self._vm.u0()) + ')'
+        uz = '((' + uz + ')/' + str(self._vm.u0()) + ')'
+        T = '((' + T + ')/' + str(self._vm.T0()) + ')'
+
+        # mass ratios
+        mr = vm.masses()
+
+        # storage
+        self._bc_vals_num = [gpuarray.empty(self._vm.vsize(), 
+            cfg.dtype) for p in range(vm.nspcs())]
+        self._bc_vals_den = [gpuarray.empty(self._vm.vsize(), 
+            cfg.dtype) for p in range(vm.nspcs())]
+        self._wall_nden = [gpuarray.empty(1, dtype=cfg.dtype) 
+                                for p in range(vm.nspcs())]
+        self._mr = [gpuarray.to_gpu(np.array(mr[p], dtype=cfg.dtype)) 
+                                for p in range(vm.nspcs())]
+
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol,
+                    ux=ux, uy=uy, uz=uz, T=T
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.bi.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # for applying the boundary condition
+        def make_applyBC(p, applyBCFunc):
+            def applyBC(ul, ur, t):
+                applyBCFunc.prepared_call(
+                    grid_Nv, block, 
+                    ul.ptr, ur.ptr, self._vm.d_cvx().ptr, 
+                    self._vm.d_cvy().ptr, self._vm.d_cvz().ptr, 
+                    self._mr[p].ptr, self._wall_nden[p].ptr, t
+                )
+            return applyBC
+
+        applyBCFunc = get_kernel(kernmod, "applyBC", 
+                [np.intp]*7+[cfg.dtype])
+        for p in range(vm.nspcs()):
+            self._applyBCKern[p] = make_applyBC(p, applyBCFunc)
+    
+        # for extracting left face values
+        def make_updateBC(p, updateBCFunc):
+            def updateBC(ul, t):
+                updateBCFunc.prepared_call(
+                    grid_Nv, block, ul.ptr, self._vm.d_cvx().ptr, 
+                    self._vm.d_cvy().ptr, self._vm.d_cvz().ptr, 
+                    self._mr[p].ptr, self._bc_vals_num[p].ptr, 
+                    self._bc_vals_den[p].ptr, t
+                )
+                self._wall_nden[p] = -(gpuarray.sum(self._bc_vals_num[p])
+                    /gpuarray.sum(self._bc_vals_den[p])
+                )
+            return updateBC
+
+        updateBCFunc = get_kernel(kernmod, "updateBC", 
+                                    [np.intp]*7+[cfg.dtype])
+        for p in range(vm.nspcs()):
+            self._updateBCKern[p] = make_updateBC(p, updateBCFunc)            
+
+
+# enforces the inlet boundary condition
+class DGFSInletBCBi(DGFSBCBi):
+    type = 'dgfs-inlet'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        initcondcls = subclass_where(DGFSInitConditionBi, model='maxwellian')
+        bc = initcondcls(cfg, self._vm, cfgsect, wall=False)
+        f0 = bc.get_init_vals()
+        self._d_bnd_f0 = [gpuarray.to_gpu(f.ravel()) for f in f0]
+        unondim = bc.unondim()
+
+        # template
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    ux=unondim[0,0], nl=nl, x=xsol
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.bi.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # for applying the boundary condition
+        def make_applyBC(p, applyBCFunc):
+            def applyBC(ul, ur, t):
+                applyBCFunc.prepared_call(
+                    grid_Nv, block, 
+                    ul.ptr, ur.ptr, self._vm.d_cvx().ptr, 
+                    self._d_bnd_f0[p].ptr, t
+                )
+            return applyBC
+
+        applyBCFunc = get_kernel(kernmod, "applyBC", 
+                [np.intp]*4+[unondim.dtype])
+        for p in range(vm.nspcs()):
+            self._applyBCKern[p] = make_applyBC(p, applyBCFunc)
+    
+        # no update
