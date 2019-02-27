@@ -25,8 +25,8 @@ class DGFSDistributionStd():
         self.dt_out = cfg.lookupfloat(cfgsect, 'dt-out')
         self.tout_next = tcurr + self.dt_out
 
-    def __call__(self, tcurr, coeff):
-        if abs(self.tout_next - tcurr) > 1e-10:
+    def __call__(self, dt, tcurr, coeff):
+        if abs(self.tout_next - tcurr) > 0.5*dt:
             return
 
         # Write out the file

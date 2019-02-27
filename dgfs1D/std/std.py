@@ -367,8 +367,8 @@ def main():
 
         # Final step: post processing routines
         residual(time, nacptsteps, d_ucoeff, d_ucoeffPrev)
-        moments(time, d_ucoeff)
-        distribution(time, d_ucoeff)
+        moments(dt, time, d_ucoeff)
+        distribution(dt, time, d_ucoeff)
 
         # copy the solution for the next time step
         cuda.memcpy_dtod(d_ucoeffPrev.ptr, d_ucoeff.ptr, d_ucoeff.nbytes)

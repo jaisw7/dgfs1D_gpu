@@ -105,10 +105,10 @@ class DGFSMomWriterStd():
         self._bulksoln = np.empty((Nqr, Ne, Ns)) 
 
         # helps us to compute moments from restart file
-        self(tcurr, coeff) 
+        self(1e-10, tcurr, coeff) 
 
-    def __call__(self, tcurr, coeff):
-        if abs(self.tout_next - tcurr) > 1e-10:
+    def __call__(self, dt, tcurr, coeff):
+        if abs(self.tout_next - tcurr) > 0.5*dt:
             return
 
         # compute the moments
@@ -125,7 +125,7 @@ class DGFSMomWriterStd():
         if rank==root:
             sol = np.vstack(sol)
             np.savetxt(solnfname, np.hstack((self.xsol, sol)), 
-                header="t={0} \n{1}".format(tcurr, self.fields), 
+                header="t={0} \n x {1}".format(tcurr, self.fields), 
                 comments="#")
 
         # Compute the next output time

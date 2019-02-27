@@ -129,7 +129,7 @@ class DGFSMaxwellianInitConditionBi(DGFSInitConditionBi):
 
 
 class DGFSMaxwellianExprInitConditionBi(DGFSInitConditionBi):
-    model = 'maxwellianExpr'
+    model = 'maxwellian-expr'
 
     def __init__(self, cfg, velocitymesh, name, **kwargs):
         super().__init__(cfg, velocitymesh, name, **kwargs)

@@ -164,30 +164,11 @@ class DGFSMomWriterBi():
         self._bulksolntot = np.empty((Nqr, Ne, 4)) 
 
         # helps us to compute moments from restart file
-        self(tcurr, coeffs) 
+        self(1e-10, tcurr, coeffs) 
 
 
-    def write(self, tcurr, coeffs):
-        # compute the moments
-        self._compute_moments_1D(coeffs)
-
-        # Write out the file
-        fname = self.basename.format(t=tcurr)
-        solnfname = os.path.join(self.basedir, fname)
-        sol = self._bulksoln.swapaxes(0,1).reshape(self.leaddim,-1)   
-
-        # get the entire information
-        comm, rank, root = get_comm_rank_root()
-        sol = comm.gather(sol, root=root)
-        if rank==root:
-            sol = np.vstack(sol)
-            np.savetxt(solnfname, np.hstack((self.xsol, sol)), "%.5e",
-                header="t={0} \n{1}".format(tcurr, self.fields), 
-                comments="#")
-
-
-    def __call__(self, tcurr, coeffs):
-        if abs(self.tout_next - tcurr) > 1e-10:
+    def __call__(self, dt, tcurr, coeffs):
+        if abs(self.tout_next - tcurr) > 0.5*dt:
             return
 
         # compute the moments
@@ -204,7 +185,7 @@ class DGFSMomWriterBi():
         if rank==root:
             sol = np.vstack(sol)
             np.savetxt(solnfname, np.hstack((self.xsol, sol)), "%.5e",
-                header="t={0} \n{1}".format(tcurr, self.fields), 
+                header="t={0} \nx {1}".format(tcurr, self.fields), 
                 comments="#")
 
         # Compute the next output time

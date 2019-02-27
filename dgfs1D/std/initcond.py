@@ -142,7 +142,7 @@ class DGFSBKWInitConditionStd(DGFSInitConditionStd):
 
 
 class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
-    model = 'maxwellianExpr'
+    model = 'maxwellian-expr'
 
     def __init__(self, cfg, velocitymesh, name):
         super().__init__(cfg, velocitymesh, name)

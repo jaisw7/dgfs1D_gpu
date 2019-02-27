@@ -371,8 +371,8 @@ def main():
 
         # Final step: post processing routines
         residual(time, nacptsteps, d_ucoeffPrevs, d_ucoeffs)
-        moments(time, d_ucoeffs)
-        distribution(time, d_ucoeffs)
+        moments(dt, time, d_ucoeffs)
+        distribution(dt, time, d_ucoeffs)
 
         # copy the solution for the next time step
         for p in range(vm.nspcs()):
