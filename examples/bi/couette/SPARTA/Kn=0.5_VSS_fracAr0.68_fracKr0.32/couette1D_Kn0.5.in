@@ -1,0 +1,69 @@
+#-- 2D Flow Around a Circle
+#-- /scratch/rice/i/isebasti/SPARTA/sparta-8Sep16/examples/circle
+#-- Prepared by Israel B. Sebastião (Purdue AAE) for AAE590-SPARTA Tutorial
+#-- Updated: 20 Sep 2016 (v0:18 Sep 2016)
+
+############################# Initialization ##################################
+
+seed               12345
+dimension          2
+global             gridcut 0.0 comm/sort yes
+
+boundary           ss pp p
+create_box         0.0 1e-3 0.0 2e-3 -0.5 0.5
+create_grid        500 1 1 #level 2 * * * 2 2 1 level 3 * * * 2 2 1
+balance_grid       rcb cell
+fix                fbalance balance 1000 1.1 rcb part
+
+                   #How to estimate fnum (= #of real particles represented by each simulated one)?
+				   #Find the domain volume: V=(Lx)(Ly)(1m)
+				   #Find the #of real particles in V: Nreal=nrho*V=5e19
+				   #Assume that each cell (in the coarsest grid) should contain 100 simulated particles per cell
+				   #The total #of simulated particles then becomes: Nsimulated=100(NCX)(NCY)(NCZ)=3.125e6
+				   #Thus, the fnum estimate is: fnum=Nreal/Nsimulated=1.6e13
+				   
+global             fnum 1.102737123056108e11 #use a higher fnum for debugging;
+species            air.species Ar Kr
+# the mixture number-density is used here
+mixture            gas Ar Kr vstream 0 0 0 temp 273 nrho 2.4811585268762432e+21
+# this mixture fraction is used so that the density of the components are the same
+mixture            gas Ar frac 0.67721518987341778
+mixture            gas Kr frac 0.32278481012658228
+
+surf_collide       diffuse_cold diffuse 273 1 translate 0.0 -50.0 0.0
+surf_collide       diffuse_hot diffuse 273 1 translate 0.0 50.0 0.0
+bound_modify       xlo collide diffuse_cold
+bound_modify       xhi collide diffuse_hot
+
+create_particles   gas n 0
+collide            vss gas air.vss
+
+timestep           2e-9
+
+compute            sumKe reduce sum ke
+stats_style        step elaplong cpu np c_sumKe nattempt ncoll nscoll #nscheck #c_fcircle[1] c_fcircle[2]
+				   
+############################# Unsteady Regime #################################
+
+collide_modify     vremax 100 yes
+
+stats              100000 #0
+run                1000000 #1000000
+
+############################## Steady Regime ##################################
+
+collide_modify     vremax 100000 yes
+
+compute            cgrid grid all species n nrho massrho u v #tvib trot
+compute            cthermal thermal/grid all species temp press
+compute            cgridGas grid all gas n nrho massrho u v #tvib trot
+compute            cthermalGas thermal/grid all gas temp press
+fix                fgrid ave/grid all 1 10000000 10000000 c_cgrid[*] c_cthermal[*] c_cgridGas[*] c_cthermalGas[*] ave running #instead of 1 100000 100000
+
+dump               dgrid grid all 10000000 prop_grid.*.dat id xlo ylo f_fgrid[*] #c_clambda[*] #instead of 100000
+dump_modify        dgrid pad 7 append no
+
+stats              1000000 
+run                100000000
+
+############################ End of Simulation ################################
