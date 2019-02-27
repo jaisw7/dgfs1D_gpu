@@ -1,0 +1,108 @@
+#-- 2D Flow Around a Circle
+#-- /scratch/rice/i/isebasti/SPARTA/sparta-8Sep16/examples/circle
+#-- Prepared by Israel B. Sebastião (Purdue AAE) for AAE590-SPARTA Tutorial
+#-- Updated: 20 Sep 2016 (v0:18 Sep 2016)
+
+############################# Initialization ##################################
+
+seed               12345
+dimension          2
+global             gridcut 0.0 comm/sort yes
+
+boundary           ss pp p
+create_box         0.0 1e-3 0.0 2e-3 -0.5 0.5
+create_grid        500 1 1 #level 2 * * * 2 2 1 level 3 * * * 2 2 1
+balance_grid       rcb cell
+fix                fbalance balance 1000 1.1 rcb part
+
+                   #How to estimate fnum (= #of real particles represented by each simulated one)?
+				   #Find the domain volume: V=(Lx)(Ly)(1m)
+				   #Find the #of real particles in V: Nreal=nrho*V=5e19
+				   #Assume that each cell (in the coarsest grid) should contain 100 simulated particles per cell
+				   #The total #of simulated particles then becomes: Nsimulated=100(NCX)(NCY)(NCZ)=3.125e6
+				   #Thus, the fnum estimate is: fnum=Nreal/Nsimulated=1.6e13
+				   
+global             nrho 3.537087430227943e+21 fnum 4.716116573637257e11 #use a higher fnum for debugging;
+species            air.species Ar
+mixture            gas Ar vstream 0 0 0 temp 273
+mixture            gas Ar frac 1.0
+
+#read_surf          data.circle group circle_surf origin 5 5 0 trans -5. -5. 0 scale 1.666666e-2 1.666666e-2 1 clip
+#surf_collide       diffuse_350K diffuse 350 1
+#surf_modify        circle_surf collide diffuse_350K
+#global            surfpush yes
+surf_collide       diffuse_hot diffuse 283 1
+surf_collide       diffuse_cold diffuse 263 1
+bound_modify       xlo collide diffuse_cold
+bound_modify       xhi collide diffuse_hot
+
+
+collide            vss gas air.vss
+#collide_modify     vibrate smooth 
+create_particles   gas n 0
+#fix                mycheck grid/check 1 error
+#fix                xlo_inlet emit/face gas xlo
+timestep           2e-9
+
+#compute            forces_circle surf circle_surf all fx fy
+#fix                forces_circle ave/surf all 1 100 100 c_forces_circle[*] ave running
+#compute            fcircle reduce sum f_forces_circle[1] f_forces_circle[2]
+
+compute            sumKe reduce sum ke
+stats_style        step elaplong cpu np c_sumKe nattempt ncoll nscoll #nscheck #c_fcircle[1] c_fcircle[2]
+				   
+############################# Unsteady Regime #################################
+
+collide_modify     vremax 100 yes
+#fix                fadapt adapt 10 refine coarsen particle 100 10
+
+#dump               dimage image all 10 prop_image_*.ppm vx type pdiam 2.e-3&
+#						  box yes 0.01 surf one 0.01 size 1024 512 zoom 3.9 #gline yes 0.005 #grid proc
+#dump_modify        dimage pad 6 scolor * black backcolor white glinecolor gray boxcolor magenta &
+#                          cmap particle 0 3500 cf 0 5 min blue 0.25 cyan 0.5 green 0.75 yellow max red
+
+stats              100000 #0
+run                1000000 #1000000
+#undump             dimage
+
+#dump               dimage image all 200 prop_image_*.ppm vx type pdiam 2.e-3&
+#						  box yes 0.01 surf one 0.01 size 1024 512 zoom 3.9 #gline yes 0.005 #grid proc
+#dump_modify        dimage pad 6 scolor * black backcolor white glinecolor gray boxcolor magenta &
+#                          cmap particle 0 3500 cf 0 5 min blue 0.25 cyan 0.5 green 0.75 yellow max red
+
+#stats              100
+#run                5000
+#undump             dimage
+
+#stats              100#00   #instead of 10000
+#run                1000#00  #instead of 100000
+
+#unfix              forces_circle
+#uncompute          forces_circle
+#uncompute          fcircle
+
+#unfix              fadapt
+#write_grid         parent circle2d_parent.grid
+#write_grid         geom circle2d_geom.grid
+#write_surf        circle2d_final.surf
+
+############################## Steady Regime ##################################
+
+collide_modify     vremax 100000 yes
+
+compute            cgrid grid species n nrho massrho u v #tvib trot
+compute            cthermal thermal/grid species temp press
+fix                fgrid ave/grid 1 10000000 10000000 c_cgrid[*] c_cthermal[*] ave running #instead of 1 100000 100000
+#compute            clambda lambda/grid f_fgrid[2] f_fgrid[8] N2 kall
+
+dump               dgrid grid all 10000000 prop_grid.*.dat id xlo ylo f_fgrid[*] #c_clambda[*] #instead of 100000
+dump_modify        dgrid pad 7 append no
+
+#compute            forces_circle surf circle_surf all fx fy
+#fix                forces_circle ave/surf all 1 100 100 c_forces_circle[*] ave running #instead of 1 1000000 1000000
+#compute            fcircle reduce sum f_forces_circle[1] f_forces_circle[2]
+
+stats              10000000 #000
+run                100000000 #000
+
+############################ End of Simulation ################################
