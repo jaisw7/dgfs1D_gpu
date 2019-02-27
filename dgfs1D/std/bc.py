@@ -104,3 +104,106 @@ class DGFSPeriodicBCStd(DGFSBCStd):
                                 ul.ptr, ur.ptr,  
                             )   
 
+# enforces the purely diffuse wall BC with variable velocity/temperature
+class DGFSWallExprDiffuseBCStd(DGFSBCStd):
+    type = 'dgfs-wall-expr-diffuse'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        #initcondcls = subclass_where(DGFSInitConditionStd, model='maxwellian')
+        #bc = initcondcls(cfg, self._vm, cfgsect, wall=True)
+        #f0 = bc.get_init_vals().reshape(self._vm.vsize(), 1)
+        #self._d_bnd_f0 = gpuarray.to_gpu(f0)
+        #unondim = bc.unondim()
+        rhoini = 1.
+        ux = cfg.lookupexpr(cfgsect, 'ux')
+        uy = cfg.lookupexpr(cfgsect, 'uy')
+        uz = cfg.lookupexpr(cfgsect, 'uz')
+        T = cfg.lookupexpr(cfgsect, 'T')
+        ux = '((' + ux + ')/' + str(self._vm.u0()) + ')'
+        uy = '((' + uy + ')/' + str(self._vm.u0()) + ')'
+        uz = '((' + uz + ')/' + str(self._vm.u0()) + ')'
+        T = '((' + T + ')/' + str(self._vm.T0()) + ')'
+
+        # storage
+        self._bc_vals_num = gpuarray.empty(self._vm.vsize(), cfg.dtype)
+        self._bc_vals_den = gpuarray.empty_like(self._bc_vals_num)
+
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol,
+                    ux=ux, uy=uy, uz=uz, T=T
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.std.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # for extracting right face values
+        applyBCFunc = get_kernel(kernmod, "applyBC", 
+            [np.intp]*6+[cfg.dtype])
+        self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
+                                grid_Nv, block, 
+                                ul.ptr, ur.ptr, self._vm.d_cvx().ptr,
+                                self._vm.d_cvy().ptr, self._vm.d_cvz().ptr, 
+                                self._wall_nden.ptr, t
+                            )
+        
+        # for extracting left face values
+        updateBCFunc = get_kernel(kernmod, "updateBC", 
+            [np.intp]*6+[cfg.dtype])
+        def updateBC(ul, t):
+            updateBCFunc.prepared_call(
+                grid_Nv, block, ul.ptr, self._vm.d_cvx().ptr, 
+                self._vm.d_cvy().ptr, self._vm.d_cvz().ptr, 
+                self._bc_vals_num.ptr, self._bc_vals_den.ptr, t
+            )
+            self._wall_nden = -(gpuarray.sum(self._bc_vals_num)
+                /gpuarray.sum(self._bc_vals_den)
+            )
+
+        self._updateBCKern = updateBC
+
+
+# enforces the inlet boundary condition
+class DGFSInletBCStd(DGFSBCStd):
+    type = 'dgfs-inlet'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        initcondcls = subclass_where(DGFSInitConditionStd, model='maxwellian')
+        bc = initcondcls(cfg, self._vm, cfgsect, wall=False)
+        f0 = bc.get_init_vals().reshape(self._vm.vsize(), 1)
+        self._d_bnd_f0 = gpuarray.to_gpu(f0)
+        unondim = bc.unondim()
+
+        # template
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.std.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # for extracting right face values
+        applyBCFunc = get_kernel(kernmod, "applyBC", 
+            [np.intp]*4+[unondim.dtype])
+        self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
+                                grid_Nv, block, 
+                                ul.ptr, ur.ptr, self._vm.d_cvx().ptr, 
+                                self._d_bnd_f0.ptr, t
+                            )
+        
+        # no update
