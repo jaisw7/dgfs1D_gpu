@@ -1,0 +1,64 @@
+#-- Rarefied Oscillatory Couette Flow (Kn=1)
+
+############################# Initialization ##################################
+
+seed               12345
+dimension          2
+global             gridcut 0.0 comm/sort yes
+
+boundary           ss pp p
+create_box         0.0 1e-3 0.0 2e-3 -0.5 0.5
+create_grid        50 1 1 #level 2 * * * 2 2 1 level 3 * * * 2 2 1
+balance_grid       rcb cell
+fix                fbalance balance 1000 1.1 rcb part
+
+# (1.67912e+21*2e-6/(100*500))/1e11 = 0.671648e+11
+# (1.67912e+21*2e-6/(1000*500))/1e11 = 0.671648e+10
+# (1.67912e+21*2e-6/(30*500))/1e11 = 2.2388e+11
+global             nrho 1.67912e+21 fnum 6.71648e+8 
+species            air.species Ar
+mixture            gas Ar vstream 0 0 0 temp 273
+mixture            gas Ar frac 1.0
+
+variable           a equal 50.0*sin(2.0*PI/5e-5*step*dt)
+variable T equal 273.0
+
+surf_collide       diffuse_cold diffuseAddVars v_T 1 translate 0.0 0.0 0.0
+surf_collide       diffuse_hot diffuseAddVars v_T 1 translate 0.0 v_a 0.0
+
+bound_modify       xlo collide diffuse_cold
+bound_modify       xhi collide diffuse_hot
+
+
+collide            vss gas air.vss
+create_particles   gas n 0
+timestep           2e-11
+
+
+compute            sumKe reduce sum ke
+stats_style        step elaplong cpu np c_sumKe nattempt ncoll nscoll #nscheck #c_fcircle[1] c_fcircle[2]
+				   
+############################# Unsteady Regime #################################
+
+#collide_modify     vremax 1000 yes
+#stats              10000
+#run                100000
+
+############################## Steady Regime ##################################
+
+collide_modify     vremax 10000 yes
+
+compute            cgrid grid all species n nrho massrho u v #tvib trot
+compute            cthermal thermal/grid all species temp press
+#fix                fgrid ave/grid all 1 10000 10000 c_cgrid[*] c_cthermal[*] ave running
+#fix                fgrid ave/grid all 1 100000 100000 c_cgrid[*] c_cthermal[*] ave one
+fix                fgrid ave/grid all 1 1000 1000 c_cgrid[*] c_cthermal[*] ave one
+
+dump               dgrid grid all 10000 prop_grid.*.dat id xlo ylo f_fgrid[*]
+dump_modify        dgrid pad 7 append no
+
+stats              10000
+#run                150000
+run                2500000
+
+############################ End of Simulation ################################
