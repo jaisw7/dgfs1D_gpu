@@ -1,5 +1,5 @@
 ### Discontinuous Galerkin Fast Spectral (DGFS) in one dimension
-This is a research code, written, so as to demonstrate that one can solve the full Boltzmann in ~6 seconds for common standard rarefied 1D problems such as couette flow.
+This is a research code, written, so as to demonstrate that one can solve the full Boltzmann in ~6 seconds for common standard rarefied 1D problems such as couette/fourier/osc-couette.
 
 The codebase consists of the single/multi species high order discontinuous Galerkin solver utilizing Fast fourier transform for evaluating the collision operator. 
 <br/>  
@@ -12,7 +12,7 @@ From a DG perspective, we use two methodologies:
 
 From a basis perspective:
 
-> By exploiting the sparse structure of the underlying matrices using SVD decomposition, the scheme has the complexity of \sum_{m} R_m M N_rho N^3 log(N), where R_m is the rank of "constant" matrix H (see **[Jaiswal 2019a]**), where  is the number of discretization points in each velocity dimension, N_rho ~ O(N) is the number of discretization points in the radial direction needed for low-rank decomposition **[Gamba 2017]**, and M is the number of discretization points on the sphere. As a direct consequence of SVD decomposition, the collocation scheme results in a scheme with a complexity of K MN^4 log(N), where K is the number of coefficients in the local element expansion. For classical modal basis, \sum_{m} R_m < K^2, while for the modified orthogonal basis (see **[Karniadakis 1999]**), \sum_{m} R_m = K^2. Note that the code automatically identifies the sparsity, and adjusts the complexity of the scheme depending on the basis in use. Other basis can be straightforwardly incorporated by introducing a new class in *basis.py*. 
+> By exploiting the sparse structure of the underlying matrices using SVD decomposition, the scheme has the complexity of \sum_{m} R_m M N_rho N^3 log(N), where R_m is the rank of "constant" matrix H (see **[Jaiswal 2019a]**), where N is the number of discretization points in each velocity dimension, N_rho ~ O(N) is the number of discretization points in the radial direction needed for low-rank decomposition **[Gamba 2017]**, and M is the number of discretization points on the sphere. As a direct consequence of SVD decomposition, the collocation scheme results in a scheme with a complexity of K MN^4 log(N), where K is the number of coefficients in the local element expansion. For classical modal basis, \sum_{m} R_m < K^2, while for the modified orthogonal basis (see **[Karniadakis 1999]**), \sum_{m} R_m = K^2. Note that the code automatically identifies the sparsity, and adjusts the complexity of the scheme depending on the basis in use. Other basis can be straightforwardly incorporated by introducing a new class in *basis.py*. 
 <br/>
 
 From a time integration perspective, we use: 
@@ -25,18 +25,24 @@ Other integration schmes can be incorporated by introducing a new class in integ
 <br/><br/>
   
 From a fast Fourier spectral perspective:
-> For evaluating the collision integral, we use the method described in (**[Gamba 2017, Jaiswal 2019a, Jaiswal 2019b]**) -- simply because the method applies straightforwardly to general collision kernels, and the results can be "directly" compared against DSMC without need of any recalibration or parametric fitting. 
-<br/><br/>
+> For evaluating the collision integral, we use the method described in (**[Gamba 2017, Jaiswal 2019a, Jaiswal 2019b]**) -- simply because the method applies straightforwardly to general collision kernels, and the results can be "directly" compared against DSMC without need of any recalibration or parametric fitting.   
 
+<br/>
 The overall DGFS method is simple from mathematical and implementation perspective; highly accurate in both physical and velocity spaces as well as time; robust, i.e. applicable for general geometry and spatial mesh; exhibits nearly linear parallel scaling; and directly applies to general collision kernels needed for high fidelity modelling. By the virtue of the design of DGFS (methodology and software), it is fairly straightforward to extend DGFS to multi-species cases (for example, one can run a diff on *std.py* and *bi.py*). 
 
 
 ### Examples
 * examples/
   * bi (binary mixtures)
-      * couette (1D couette flow)
+      * couette (1D couette flow : VSS model)
+      * fourier (1D fourier heat transfer: VSS model)
+      * oscCouette (1D oscillatory couette flow: VSS model)
   * std (single species)
-      * couette (1D couette flow)
+      * couette (1D couette flow: VHS model)
+      * oscCouette (1D oscillatory couette flow: VHS model)
+      * fourier (1D fourier heat transfer: Maxwell model)
+      * normalschok (1D normal shock: HS model)
+>For most of these cases, the [DSMC/SPARTA](https://sparta.sandia.gov/) simulation script have been made available in the corresponding folders.
 
 
 ### Parametric study
@@ -65,7 +71,6 @@ The overall DGFS method is simple from mathematical and implementation perspecti
 
   for i in {euler,ssp-rk2,ssp-rk3,lesrk-45};
   do 
-
       dgfsStd1D run dgfs1D.ini -v time-integrator::scheme $i;
   done
   ```
@@ -114,4 +119,9 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
   *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208.. 
 * **[Jaiswal 2019b]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
   *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: http://goo.gl/Y5hUnz. 
+
+### License:
+*dgfs1D_gpu* is released as GNU GPLv2 open-source software. The intention is to keep everything transparent, and adopt the practice in early part of research career.  
+
+Portions of the code have been derived from "Nektar++" and "PyFR". Please see licenses folder for restrictions.
 
