@@ -8,7 +8,7 @@ From a DG perspective, we use two methodologies:
 
 * the collocation penalty variant (as per **[Hasthaven 2007]**)
 * the classical modal variant (as per **[Karniadakis 1999]**)
-<br/>  
+<br/>
 
 From a basis perspective:
 
@@ -28,8 +28,11 @@ From a fast Fourier spectral perspective:
 > For evaluating the collision integral, we use the method described in (**[Gamba 2017, Jaiswal 2019a, Jaiswal 2019b]**) -- simply because the method applies straightforwardly to general collision kernels, and the results can be "directly" compared against DSMC without need of any recalibration or parametric fitting.   
 
 <br/>
-The overall DGFS method is simple from mathematical and implementation perspective; highly accurate in both physical and velocity spaces as well as time; robust, i.e. applicable for general geometry and spatial mesh; exhibits nearly linear parallel scaling; and directly applies to general collision kernels needed for high fidelity modelling. By the virtue of the design of DGFS (methodology and software), it is fairly straightforward to extend DGFS to multi-species cases (for example, one can run a diff on *std.py* and *bi.py*). 
+The overall DGFS method is simple from mathematical and implementation perspective; highly accurate in both physical and velocity spaces as well as time; robust, i.e. applicable for general geometry and spatial mesh; exhibits nearly linear parallel scaling; and directly applies to general collision kernels needed for high fidelity modelling. By the virtue of the design of DGFS (methodology and software), it is fairly straightforward to extend DGFS to multi-species cases (for example, one can run a diff on std.py and bi.py)    
 
+<br/>  
+
+> For verification and tests, we have also added BGK/ESBGK **[Mieussens 2000, Chigullapalli 2011]** linear/kinetic scattering models as well (see examples/std/couette/bgk).
 
 ### Examples
 * examples/
@@ -41,9 +44,8 @@ The overall DGFS method is simple from mathematical and implementation perspecti
       * couette (1D couette flow: VHS model)
       * oscCouette (1D oscillatory couette flow: VHS model)
       * fourier (1D fourier heat transfer: Maxwell model)
-      * normalschok (1D normal shock: HS model)
->For most of these cases, the [DSMC/SPARTA](https://sparta.sandia.gov/) simulation script have been made available in the corresponding folders.
-
+      * normalshock (1D normal shock: HS model)
+> For most of these cases, the [DSMC/SPARTA](https://sparta.sandia.gov/) simulation script have been made available in the corresponding folders.
 
 ### Parametric study
 #### Single species: see examples/std directory
@@ -80,11 +82,11 @@ The overall DGFS method is simple from mathematical and implementation perspecti
 #### Multi species: see examples/bi directory
 > Replace *dgfsStd1D* by *dgfsBi1D* in the aforementioned examples
 
-* **Benchmark**: Performance of the solver for Couette flow test cases. The phase-space is defined using a convenient triplet notation **Ne/K/N^3**,
-which corresponds to *Ne* elements in physical space, *K* order nodal DG (equivalently Np = K − 1 order polynomial for 1-D domain), and **N^3** points
-in velocity space. n*G* (n > 1) denotes GPU/CUDA/MPI/parallel execution on n GPUs shared equally across (n/3) nodes. **Work units represent
-the total simulation time for first 52 timesteps**. Efficiency is defined as ratio (1*G*/n*G*)/n, where 1*G* and n*G* are execution-times on one GPU
-and n GPU respectively. M = 12 and N_rho = 8 is used for all cases
+* **Benchmark [Jaiswal 2019c]**: Performance of the solver for Couette flow test cases. The phase-space is defined using a convenient triplet notation 
+**Ne/K/N^3**, which corresponds to *Ne* elements in physical space, *K* order nodal DG (equivalently Np = K − 1 order polynomial for 1-D domain), and 
+**N^3** points in velocity space. n*G* (n > 1) denotes GPU/CUDA/MPI/parallel execution on n GPUs shared equally across (n/3) nodes. **Work units 
+represent the total simulation time for first 52 timesteps**. Efficiency is defined as ratio (1*G*/n*G*)/n, where 1*G* and n*G* are execution-times on 
+one GPU and n GPU respectively. M = 12 and N_rho = 8 is used for all cases
 
 | Phase Space | Work Units (s) |         |         |         |         |        |        | Efficiency |       |       |        |        |        |
 |:-----------:|:--------------:|:-------:|:-------:|:-------:|:-------:|:------:|:------:|:----------:|:-----:|:-----:|:------:|:------:|:------:|
@@ -118,10 +120,16 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
 * **[Jaiswal 2019a]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
   *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208.. 
 * **[Jaiswal 2019b]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
-  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: http://goo.gl/Y5hUnz. 
+  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: https://arxiv.org/abs/1903.03056
+* **[Jaiswal 2019c]** Jaiswal, Hu, J., and Alexeenko, A. A. (2019)
+  *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://goo.gl/PCr3AG. 
+* **[Mieussens 2000]** Mieussens, L. (2000) 
+  *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
+* **[Chigullapalli 2011]** Chigullapalli, S., and Alexeenko, A. A. (2011) 
+  *Unsteady 3d rarefied flow solver based on boltzmann-esbgk model kinetic equations.* 41st AIAA Fluid Dynamics Conference and Exhibit. 2011.
 
 ### License:
 *dgfs1D_gpu* is released as GNU GPLv2 open-source software. The intention is to keep everything transparent, and adopt the practice in early part of research career.  
 
-Portions of the code have been derived from "Nektar++" and "PyFR". Please see licenses folder for restrictions.
+Portions of the code have been derived from "Polylib" and "PyFR". Please see licenses folder for restrictions.
 
