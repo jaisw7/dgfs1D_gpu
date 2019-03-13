@@ -122,7 +122,7 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
 * **[Jaiswal 2019b]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
   *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: https://arxiv.org/abs/1903.03056
 * **[Jaiswal 2019c]** Jaiswal, Hu, J., and Alexeenko, A. A. (2019)
-  *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://goo.gl/PCr3AG. 
+  *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://arxiv.org/abs/1903.04670 
 * **[Mieussens 2000]** Mieussens, L. (2000) 
   *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
 * **[Chigullapalli 2011]** Chigullapalli, S., and Alexeenko, A. A. (2011) 
@@ -133,3 +133,5 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
 
 Portions of the code have been derived from "Polylib" and "PyFR". Please see licenses folder for restrictions.
 
+### Confessions:
+I admit that the codebase can be made more compact!
