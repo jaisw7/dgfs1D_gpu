@@ -32,7 +32,7 @@ The overall DGFS method is simple from mathematical and implementation perspecti
 
 <br/>  
 
-> For verification and tests, we have also added BGK/ESBGK **[Mieussens 2000, Chigullapalli 2011]** linear/kinetic scattering models as well (see examples/std/couette/bgk).
+> For verification and tests, we have also added BGK/ESBGK **[Mieussens 2000]** linear/kinetic scattering models as well (see examples/std/couette/bgk).
 
 ### Examples
 * examples/
@@ -125,8 +125,6 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
   *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://arxiv.org/abs/1903.04670 
 * **[Mieussens 2000]** Mieussens, L. (2000) 
   *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
-* **[Chigullapalli 2011]** Chigullapalli, S., and Alexeenko, A. A. (2011) 
-  *Unsteady 3d rarefied flow solver based on boltzmann-esbgk model kinetic equations.* 41st AIAA Fluid Dynamics Conference and Exhibit. 2011.
 
 ### License:
 *dgfs1D_gpu* is released as GNU GPLv2 open-source software. The intention is to keep everything transparent, and adopt the practice in early part of research career.  
