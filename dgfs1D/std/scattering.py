@@ -41,6 +41,13 @@ class DGFSScatteringModelStd(object, metaclass=ABCMeta):
     def fs(self, d_arr_in, d_arr_out, elem, upt):
         pass
 
+    @property
+    def prefac(self): return self._prefactor
+
+    @property
+    def omega(self): return self._omega
+    
+
 # Simplified VHS model for GLL based nodal collocation schemes
 class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
     scattering_model = 'vhs-gll'
@@ -65,6 +72,7 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
 
         self._prefactor = invKn*alpha/(
             pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
+        self._omega = omega
 
         print("Kn:", 1.0/invKn)
         print("prefactor:", self._prefactor)
@@ -1520,4 +1528,218 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
             elem, modein, modeout, 
             self.d_moms[0].ptr, self.d_moms[4].ptr, 
             self.d_feES.ptr, self.d_floc.ptr, d_Q)
+
+
+
+
+
+"""
+BGK-Shakov "Iteration free" direct approach
+The argument is: If the velocity grid is isotropic, and large enough; 
+the error in conservation would be spectrally low
+"""
+class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
+    scattering_model = 'shakov-direct-gll'
+
+    def __init__(self, cfg, velocitymesh, **kwargs):
+        self._Ne = kwargs.get('Ne')
+        basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
+        if basis_kind!='nodal-sem-gll':
+            raise RuntimeError("Only tested for nodal basis")
+        super().__init__(cfg, velocitymesh, **kwargs)
+
+    def load_parameters(self):
+        Pr = self.cfg.lookupordefault('scattering-model', 'Pr', 2./3.)
+        omega = self.cfg.lookupfloat('scattering-model', 'omega');
+        muRef = self.cfg.lookupfloat('scattering-model', 'muRef');
+        Tref = self.cfg.lookupfloat('scattering-model', 'Tref');
+
+        t0 = self.vm.H0()/self.vm.u0() # non-dimensionalization time scale
+        visc = muRef*((self.vm.T0()/Tref)**omega) # the viscosity
+        p0 = self.vm.n0()*self.vm.R0/self.vm.NA*self.vm.T0() # non-dim press
+
+        self._prefactor = (t0*Pr*p0/visc)
+        self._omega = omega
+        self._Pr = Pr
+        print("Pr:", self._Pr)
+        print("prefactor:", self._prefactor)
+
+    def perform_precomputation(self):
+        # Precompute aa, bb1, bb2 (required for kernel)
+        # compute l
+        Nv = self.vm.Nv()
+        Nrho = self.vm.Nrho()
+        M = self.vm.M()
+        L = self.vm.L()
+        qz = self.vm.qz()
+        qw = self.vm.qw()
+        sz = self.vm.sz()
+        vsize = self.vm.vsize()
+        cv = self.vm.cv()
+        self.cw = self.vm.cw()
+
+        # the precision
+        dtype = self.cfg.dtype
+        d = 'd'
+
+        # number of variables for ESBGK
+        self.nalphSk = 8
+        nalphSk = self.nalphSk
+
+        # allocate velocity mesh in PyCUDA gpuarray
+        self.d_cvx = self.vm.d_cvx()
+        self.d_cvy = self.vm.d_cvy()
+        self.d_cvz = self.vm.d_cvz()
+
+        # define scratch spaces
+        # cell local distribution function
+        self.d_floc = gpuarray.empty(vsize, dtype=dtype)
+
+        # cell local equilibrium distribution function (Shakov)
+        self.d_feSk = gpuarray.empty_like(self.d_floc)         
+
+        # scratch variable for storage for the moments
+        self.d_mom10 = gpuarray.empty_like(self.d_floc)
+        self.d_mom11 = gpuarray.empty_like(self.d_floc)
+        self.d_mom12 = gpuarray.empty_like(self.d_floc)
+        self.d_mom2 = gpuarray.empty_like(self.d_floc)
+
+        # additional variables for ESBGK
+        self.d_mom3sk_x = gpuarray.empty_like(self.d_floc)
+        self.d_mom3sk_y = gpuarray.empty_like(self.d_floc)
+        self.d_mom3sk_z = gpuarray.empty_like(self.d_floc)
+
+        # storage for reduced moments for Shakov
+        self.d_momsSk = [gpuarray.empty(1,dtype=dtype) for i in range(nalphSk)]
+        self.d_equiMomsSk = [
+            gpuarray.empty(1,dtype=dtype) for i in range(nalphSk)]
+
+        # block size for running the kernel
+        self.block = (256, 1, 1)
+        self.grid = get_grid_for_block(self.block, vsize)
+
+        # storage for alpha (ESBGK)
+        self.d_alphaSk = gpuarray.empty(nalphSk, dtype=dtype)
+
+        # for defining ptr
+        self.ptr = lambda x: list(map(lambda v: v.ptr, x))
+
+        # extract the template
+        dfltargs = dict(cw=self.cw,
+            vsize=vsize, prefac=self._prefactor, 
+            nalphSk=self.nalphSk, omega=self._omega, Pr=self._Pr,
+            block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename)
+        src = DottedTemplateLookup(
+            'dgfs1D.std.kernels.scattering', dfltargs
+        ).get_template('shakov-direct-gll').render()
+
+        # Compile the source code and retrieve the kernel
+        module = compiler.SourceModule(src)
+
+        # sum kernel
+        self.sumKern = get_kernel(module, "sum_", 'PPII')
+        grid = self.grid
+        block = self.block
+        seq_count0 = int(4)
+        N = int(vsize)
+        #grid_count0 = int((grid[0] + (-grid[0] % seq_count0)) // seq_count0)
+        grid_count0 = int((grid[0]//seq_count0 + ceil(grid[0]%seq_count0)))
+        d_st = gpuarray.empty(grid_count0, dtype=dtype)
+        #seq_count1 = int((grid_count0 + (-grid_count0 % block[0])) // block[0])
+        seq_count1 = int((grid_count0//block[0] + ceil(grid_count0%block[0])))
+        def sum_(d_in, d_out):
+            self.sumKern.prepared_call(
+                (grid_count0,1), block, d_in.ptr, d_st.ptr, seq_count0, N)
+            self.sumKern.prepared_call(
+                (1,1), block, d_st.ptr, d_out.ptr, seq_count1, grid_count0)
+        self.sumFunc = sum_
+
+        # extract the element-local space coefficients
+        self.flocKern = get_kernel(module, "flocKern", 'IIPP')
+
+        # compute the first moment of local distribution
+        self.mom1Kern = get_kernel(module, "mom1", 'PPP'+'P'+'PPP')
+
+        # helper function for recovering density/velocity from moments
+        self.mom01NormKern = get_kernel(module, "mom01Norm", 'PPPP')
+
+        # compute the second and third moments for Shakov
+        self.mom23SkKern = get_kernel(module, 
+            "mom23Sk", 'PPP'+'P'+'P'*4+'P'*4)
+
+        # compute the second moments for ESBGK
+        self.mom23SkNormKern = get_kernel(module, 
+            "mom23SkNorm", 'P'*nalphSk)
+
+        # computes the equilibrium BGK distribution, and constructs expM
+        self.equiSkDistComputeKern = get_kernel(module, 
+            "equiSkDistCompute", 'PPP'+'P'+'P'*nalphSk)
+
+        # Prepare the out kernel for execution
+        self.outKern = get_kernel(module, "output", 'III'+'P'*2+'PPP')
+
+        # required by the child class (may be deleted by the child)
+        self.module = module
+
+
+    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
+        # Asumption: d_arr_in1 == d_arr_in2
+
+        d_f0 = d_arr_in.ptr
+        d_Q = d_arr_out.ptr
+
+        # construct d_floc from d_f0
+        self.flocKern.prepared_call(self.grid, self.block, 
+            elem, modein, d_f0, self.d_floc.ptr)
+
+        # compute first moment
+        self.mom1Kern.prepared_call(self.grid, self.block, 
+            self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
+            self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
+
+        # compute macroscopic properties
+        self.sumFunc(self.d_floc, self.d_momsSk[0])  # missing: ${cw}
+        self.sumFunc(self.d_mom10, self.d_momsSk[1]) # missing: ${cw}/d_moms[0]
+        self.sumFunc(self.d_mom11, self.d_momsSk[2]) # missing: ${cw}/d_moms[0]
+        self.sumFunc(self.d_mom12, self.d_momsSk[3]) # missing: ${cw}/d_moms[0]
+
+        # insert the missing factor for the density and velocity
+        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
+            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr, 
+            self.d_momsSk[2].ptr, self.d_momsSk[3].ptr)
+
+        # compute the second and third moments for Shakov
+        self.mom23SkKern.prepared_call(self.grid, self.block, 
+            self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
+            self.d_floc.ptr, 
+            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr, 
+            self.d_momsSk[2].ptr, self.d_momsSk[3].ptr, 
+            self.d_mom2.ptr,
+            self.d_mom3sk_x.ptr, self.d_mom3sk_y.ptr, 
+            self.d_mom3sk_z.ptr
+        )
+
+        # reduce the moments 
+        self.sumFunc(self.d_mom2, self.d_momsSk[4])
+        self.sumFunc(self.d_mom3sk_x, self.d_momsSk[5])  # missing: ${cw}/d_moms[0]
+        self.sumFunc(self.d_mom3sk_y, self.d_momsSk[6]) # missing: ${cw}/d_moms[0]
+        self.sumFunc(self.d_mom3sk_z, self.d_momsSk[7]) # missing: ${cw}/d_moms[0]
+
+        # normalize the moments (incorporates the missing factor)
+        # the missing factor in d_moms[4] (cw/(1.5*d_moms[0])) is added here
+        self.mom23SkNormKern.prepared_call((1,1), (1,1,1), 
+            *self.ptr(self.d_momsSk)
+        )
+
+        # compute the Shakov distribution
+        self.equiSkDistComputeKern.prepared_call(self.grid, self.block,
+            self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
+            self.d_feSk.ptr, *self.ptr(self.d_momsSk)
+        )
+
+        # outKern
+        self.outKern.prepared_call(self.grid, self.block, 
+            elem, modein, modeout, 
+            self.d_momsSk[0].ptr, self.d_momsSk[4].ptr, 
+            self.d_feSk.ptr, self.d_floc.ptr, d_Q)
 
