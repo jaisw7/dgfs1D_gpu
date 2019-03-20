@@ -5,7 +5,7 @@ from dgfs1D.quadratures import (zwglj, zwgj, zwgrjm,
                                 nodal_basis_at, jac_nodal_basis_at, 
                                 jacobi, jacobi_diff)
 
-import pycuda.autoinit
+#import pycuda.autoinit
 from pycuda import compiler, gpuarray
 import pycuda.driver as cuda
 from dgfs1D.util import (get_kernel, filter_tol, 
