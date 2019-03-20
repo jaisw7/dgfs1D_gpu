@@ -69,7 +69,6 @@ extras_require = {
 # Scripts
 console_scripts = [
     'dgfsStd1D = dgfs1D.std.std:__main__',
-    'dgfsAsymStd1D = dgfs1D.std.astd:__main__',
     'dgfsBi1D = dgfs1D.bi.bi:__main__'
 ]
 
