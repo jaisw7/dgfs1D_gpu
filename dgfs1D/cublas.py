@@ -149,6 +149,27 @@ class CUBLASWrappers(object):
         ]
         self.cublasStrsm.errcheck = self._errcheck
 
+        # cublasDgeam
+        self.cublasDgeam = lib.cublasDgeam
+        self.cublasDgeam.argtypes = [
+            c_void_p, c_int, c_int, c_int, c_int, 
+            POINTER(c_double), c_void_p, c_int, 
+            POINTER(c_double), c_void_p, c_int, 
+            c_void_p, c_int
+        ]
+        self.cublasDgeam.errcheck = self._errcheck
+
+        # cublasSgeam
+        self.cublasSgeam = lib.cublasSgeam
+        self.cublasSgeam.argtypes = [
+            c_void_p, c_int, c_int, c_int, c_int, 
+            POINTER(c_float), c_void_p, c_int, 
+            POINTER(c_float), c_void_p, c_int, 
+            c_void_p, c_int
+        ]
+        self.cublasSgeam.errcheck = self._errcheck
+
+
     def _errcheck(self, status, fn, args):
         if status != 0:
             try:
@@ -305,3 +326,25 @@ class CUDACUBLASKernels(object):
         #w.cublasSetStream(self._handle, queue.cuda_stream_comp.handle)
         cublastrsm(self._handle, cs, fm, opA, du, m, n,
                     alpha_ct, a.ptr, sA[1], x.ptr)
+
+
+    def transpose(self, a, sA, b):
+        w = self._wrappers
+
+        m, n = sA[0], sA[1]
+
+        # Transpose
+        opA = w.CUBLAS_OP_T        
+        opB = w.CUBLAS_OP_N
+
+        # α and β factors for C = α*op(A) + β*op(B)
+        if a.dtype == np.float64:
+            cublasgeam = w.cublasDgeam
+            alpha_ct, beta_ct = c_double(1), c_double(0)
+        else:
+            cublasgeam = w.cublasSgeam
+            alpha_ct, beta_ct = c_float(1), c_float(0)
+
+        #w.cublasSetStream(self._handle, queue.cuda_stream_comp.handle)
+        cublasgeam(self._handle, opA, opB, n, m,
+                    alpha_ct, a.ptr, m, beta_ct, b.ptr, n, b.ptr, n)
