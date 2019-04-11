@@ -6,7 +6,7 @@ import ctypes
 import ctypes.util
 import os
 import sys
-from dgfs1D.cublas import CUBLASWrappers
+from cgfs1D.cublas import CUBLASWrappers
 from pycuda import gpuarray
 
 def platform_libname(name):
@@ -29,7 +29,7 @@ def load_library(name):
         pass
 
     # If an explicit override has been given then use it
-    lpath = os.environ.get('DGFS_{0}_LIBRARY_PATH'.format(name.upper()))
+    lpath = os.environ.get('CGFS_{0}_LIBRARY_PATH'.format(name.upper()))
     if lpath:
         return ctypes.CDLL(lpath)
 
@@ -160,7 +160,7 @@ class CUSOLVERWrappers(object):
         self.cusolverSpSetStream.argtypes = [c_void_p, c_void_p]
         self.cusolverSpSetStream.errcheck = self._errcheck
 
-        # cusolverSpScsrlsvlu
+        # cusolverSpScsrlsvqr
         self.cusolverSpScsrlsvqr = lib.cusolverSpScsrlsvqr
         self.cusolverSpScsrlsvqr.argtypes = [
             c_void_p, c_int, c_int, 
@@ -169,7 +169,7 @@ class CUSOLVERWrappers(object):
         ]
         self.cusolverSpScsrlsvqr.errcheck = self._errcheck
 
-        # cusolverSpDcsrlsvlu
+        # cusolverSpDcsrlsvqe
         self.cusolverSpDcsrlsvqr = lib.cusolverSpDcsrlsvqr
         self.cusolverSpDcsrlsvqr.argtypes = [
             c_void_p, c_int, c_int, 
@@ -177,6 +177,66 @@ class CUSOLVERWrappers(object):
             c_void_p, c_double, c_int, c_void_p, POINTER(c_int)
         ]
         self.cusolverSpDcsrlsvqr.errcheck = self._errcheck
+
+        # for batched QR decomposition
+
+        # cusolverSpCreateCsrqrInfo
+        self.cusolverSpCreateCsrqrInfo = lib.cusolverSpCreateCsrqrInfo
+        self.cusolverSpCreateCsrqrInfo.argtypes = [POINTER(c_void_p)]
+        self.cusolverSpCreateCsrqrInfo.errcheck = self._errcheck
+        #self.cusolverSpCreateCsrqrInfo.rettype = c_int
+
+        # cusolverSpDestroyCsrqrInfo
+        self.cusolverSpDestroyCsrqrInfo = lib.cusolverSpDestroyCsrqrInfo
+        self.cusolverSpDestroyCsrqrInfo.argtypes = [c_void_p]
+        self.cusolverSpDestroyCsrqrInfo.errcheck = self._errcheck
+
+        # analyze the sparse structure of the matrix
+        self.cusolverSpXcsrqrAnalysisBatched = (
+            lib.cusolverSpXcsrqrAnalysisBatched)
+        self.cusolverSpXcsrqrAnalysisBatched.argtypes = [
+            c_void_p, c_int, c_int, c_int,
+            c_void_p, c_void_p, c_void_p, c_void_p
+        ]
+        self.cusolverSpXcsrqrAnalysisBatched.errcheck = self._errcheck
+
+        # allocate buffers for batched QR decomposition (float)
+        self.cusolverSpScsrqrBufferInfoBatched = (
+            lib.cusolverSpScsrqrBufferInfoBatched)
+        self.cusolverSpScsrqrBufferInfoBatched.argtypes = [
+            c_void_p, c_int, c_int, c_int,
+            c_void_p, c_void_p, c_void_p, c_void_p
+        ]
+        self.cusolverSpScsrqrBufferInfoBatched.errcheck = self._errcheck
+
+        # allocate buffers for batched QR decomposition (double)
+        self.cusolverSpDcsrqrBufferInfoBatched = (
+            lib.cusolverSpDcsrqrBufferInfoBatched)
+        self.cusolverSpDcsrqrBufferInfoBatched.argtypes = [
+            c_void_p, c_int, c_int, c_int,
+            c_void_p, c_void_p, c_void_p, c_void_p
+        ]
+        self.cusolverSpDcsrqrBufferInfoBatched.errcheck = self._errcheck
+
+        # CSR-QR batched (float)
+        self.cusolverSpScsrqrsvBatched = lib.cusolverSpScsrqrsvBatched
+        self.cusolverSpScsrqrsvBatched.argtypes = [
+            c_void_p, c_int, c_int, c_int,
+            c_void_p, 
+            c_void_p, c_void_p, c_void_p, 
+            c_void_p, c_void_p, c_int, c_void_p, c_void_p
+        ]
+        self.cusolverSpScsrqrsvBatched.errcheck = self._errcheck
+
+        # CSR-QR batched (double)
+        self.cusolverSpDcsrqrsvBatched = lib.cusolverSpDcsrqrsvBatched
+        self.cusolverSpDcsrqrsvBatched.argtypes = [
+            c_void_p, c_int, c_int, c_int,
+            c_void_p, 
+            c_void_p, c_void_p, c_void_p, 
+            c_void_p, c_void_p, c_int, c_void_p, c_void_p
+        ]
+        self.cusolverSpDcsrqrsvBatched.errcheck = self._errcheck
 
 
     def _errcheck(self, status, fn, args):
@@ -201,6 +261,14 @@ class CUSOLVERCache(object):
 
     @property
     def info(self): return self._info
+
+
+class CUSOLVERGenericCache(object):
+    def __init__(self, *args):
+        self._data = args
+
+    @property
+    def data(self): return self._data
         
 
 class CUDACUSOLVERKernels(object):
@@ -222,8 +290,11 @@ class CUDACUSOLVERKernels(object):
         self._handle_blas = c_void_p()
         self._wrappers_blas.cublasCreate(self._handle_blas)
 
-        # scratch data cache
+        # scratch data cache 
         self._cache = {}
+
+        # scratch data cache for batched QR decomposition
+        self._cache_QR = {}
 
     """
     def __del__(self):
@@ -267,6 +338,7 @@ class CUDACUSOLVERKernels(object):
         if key in self._cache:
             
             item = self._cache[key]
+            #ipiv, buffer, info = item.ipiv, item.buffer, item.info
             ipiv, buffer, info = item.ipiv, item.buffer, item.info
 
         else:
@@ -297,7 +369,7 @@ class CUDACUSOLVERKernels(object):
 
     # Solve Ax=b via LU decomposition: Faster than QRF for small matrices
     def solveQRSparse(self, descrA, a, b, x, tol=1e-6, reorder=0):
-        # Wroks for square matrices only
+        # Works for square matrices only
         w = self._wrappers
 
         # Ensure the matrices are compatible
@@ -320,4 +392,72 @@ class CUDACUSOLVERKernels(object):
         cusolverspcsrlsvqr(self._handle_sp, n, nnz, 
                     descrA, a.csrVal.ptr, a.csrRowPtr.ptr, a.csrColInd.ptr, 
                     b.ptr, tol_ct, reorder_ct, x.ptr, ret)
+
+
+    # solve Ax=b batched QR decomposition
+
+    # utility for creating struct for CSR QR decompostion information
+    def createcsrqrinfo(self):
+        info = c_void_p()
+        stat = self._wrappers.cusolverSpCreateCsrqrInfo(info)
+        return info
+
+    # Solve Ax=b via QR decomposition
+    def solveBatchedQRSparse(self, bSz, infoA, descrA, a, b, x):
+        # Wroks for square matrices only
+        w = self._wrappers
+
+        # Ensure the matrices are compatible
+        #if sA[1] != n:
+        #    raise ValueError('Incompatible matrices for solve(A, b)')
+
+        # CUSOLVER expects inputs to be column-major (or Fortran order in
+        # numpy parlance). 
+        m, n, nnzA = a.shape
+
+        key = hash((m, n, nnzA, bSz))
+
+        if key in self._cache_QR:
+            
+            item = self._cache_QR[key]
+            qr_buffer, = item.data
+
+        else:
+
+            sz_internal_bytes, sz_qr_bytes = c_int(0), c_int(0)
+
+            if a.csrVal.dtype == np.float64:
+                spcsrqrBufferInfoBatched = w.cusolverSpDcsrqrBufferInfoBatched
+            else:
+                spcsrqrBufferInfoBatched = w.cusolverSpScsrqrBufferInfoBatched
+
+            # perform an analysis on the matrix
+            w.cusolverSpXcsrqrAnalysisBatched(self._handle_sp, n, n, nnzA,
+                descrA, a.csrRowPtr.ptr, a.csrColInd.ptr, infoA)
+            
+            # Query working space of csrqrBatched
+            #w.cusolverSetStream(self._handle, queue.cuda_stream_comp.handle)
+            spcsrqrBufferInfoBatched(self._handle_sp, n, n, nnzA,
+                descrA, a.csrVal.ptr, a.csrRowPtr.ptr, a.csrColInd.ptr,
+                bSz, infoA, byref(sz_internal_bytes), byref(sz_qr_bytes))
+
+            # normalize workspace size
+            #sz_qr = sz_qr_bytes.value//a.csrVal.itemsize
+            #qr_buffer = gpuarray.empty(sz_qr, dtype=a.csrVal.dtype)
+
+            sz_qr = sz_qr_bytes.value//np.dtype(np.intp).itemsize
+            qr_buffer = gpuarray.empty(sz_qr, dtype=np.intp)
+            
+            self._cache_QR[key] = CUSOLVERGenericCache(qr_buffer)
+
+
+        if a.csrVal.dtype == np.float64:
+            cusolverspcsrqrsvBatched = w.cusolverSpDcsrqrsvBatched
+        else:
+            cusolverspcsrqrsvBatched = w.cusolverSpScsrqrsvBatched
+
+        cusolverspcsrqrsvBatched(self._handle_sp, n, n, nnzA, 
+                    descrA, a.csrVal.ptr, a.csrRowPtr.ptr, a.csrColInd.ptr, 
+                    b.ptr, x.ptr, bSz, infoA, qr_buffer.ptr)
+
 
