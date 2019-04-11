@@ -318,7 +318,6 @@ def main():
         # ux = -cvx*np.einsum("ml,em->el", Sx, ucoeff)
         deriv_Op(d_ucoeff_in, d_ux)
         mulbyadv_Op(d_ux)
-        #print(gpuarray.sum(d_ux))
 
         # Compute the continuous flux for each element in strong form
         totalFlux_Op(d_ux, d_jL, d_jR)
@@ -389,12 +388,6 @@ def __main__():
     # Define MPI communication world
     from mpi4py import MPI
     MPI.Init()
-
-    # define the local rank based cuda device
-    #os.environ['CUDA_DEVICE'] = str(get_local_rank())
-
-    # CUDA device number (used by pycuda.autoinit)
-    #from pycuda.autoinit import context
 
     # define the local rank based cuda device
     print("Local rank", get_local_rank())
