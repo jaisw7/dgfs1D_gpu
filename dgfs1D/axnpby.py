@@ -96,3 +96,49 @@ def get_axnpby_kerns_const(nv, subdims, size, a):
     axnpby = get_kernel(kernmod, "axnpby_const", [np.intp]*nv)
 
     return axnpby
+
+
+# third type: If a is on device
+
+axnpbysrc2 = """
+#define scalar ${dtype}
+__global__ void
+axnpby2(scalar* __restrict__ x0,
+       ${', '.join('const scalar* __restrict__ x' + str(i)
+                   for i in range(1, nv))},
+       ${', '.join('scalar* a' + str(i) for i in range(nv))})
+{
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    int id;
+
+    if (idx < ${size} && a0[0] == 0.0)
+    {
+    % for k in subdims:
+        id = ${k*size} + idx;
+        x0[id] = ${" +".join('a{l}[0]*x{l}[id]'.format(l=l) for l in range(1, nv))};
+    % endfor
+    }
+    else if (idx < ${size} && a0[0] == 1.0)
+    {
+    % for k in subdims:
+        id = ${k*size} + idx;
+        x0[id] += ${" +".join('a{l}[0]*x{l}[id]'.format(l=l) for l in range(1, nv))};
+    % endfor
+    }
+    else if (idx < ${size})
+    {
+    % for k in subdims:
+        id = ${k*size} + idx;
+        x0[id] = ${" +".join('a{l}[0]*x{l}[id]'.format(l=l) for l in range(nv))};
+    % endfor
+    }
+}
+"""
+
+def get_axnpby2_kerns(nv, subdims, size, dtype):
+    kernsrc = Template(axnpbysrc2).render(
+        nv=nv, subdims=subdims, size=size, dtype=np_rmap[dtype]
+    )
+    kernmod = compiler.SourceModule(kernsrc)
+    axnpby2 = get_kernel(kernmod, "axnpby2", [np.intp]*(nv*2))
+    return axnpby2
