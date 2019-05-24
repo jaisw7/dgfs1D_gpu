@@ -58,7 +58,8 @@ install_requires = [
     'mako >= 1.0.0',
     'numpy >= 1.8',
     'pytools >= 2016.2.1',
-    'pycuda >= 2015.1'
+    'pycuda >= 2015.1',
+    'mpi4py >= 2.0'
 ]
 
 # Soft dependencies
