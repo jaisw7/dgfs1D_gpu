@@ -117,12 +117,14 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
   *Nodal discontinuous Galerkin methods: algorithms, analysis, and applications.* Springer Science & Business Media, 2007.
 * **[Gamba 2017]** Gamba, I. M., Haack, J. R., Hauck, C. D., & Hu, J. (2017). 
   *A fast spectral method for the Boltzmann collision operator with general collision kernels.* SIAM Journal on Scientific Computing, 39(4), B658-B674.
-* **[Jaiswal 2019a]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
-  *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208.. 
-* **[Jaiswal 2019b]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
-  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: https://arxiv.org/abs/1903.03056
-* **[Jaiswal 2019c]** Jaiswal, Hu, J., and Alexeenko, A. A. (2019)
+* **[Jaiswal 2019a]** Jaiswal, S., Alexeenko, A. A., and Hu, J. (2019)
+  *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208. 
+* **[Jaiswal 2019b]** Jaiswal, S., Alexeenko, A. A., and Hu, J. (2019)
+  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* Computer Methods in Applied Mechanics and Engineering 352: 56-84.
+* **[Jaiswal 2019c]** Jaiswal, S., Hu, J., and Alexeenko, A. A. (2019)
   *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://arxiv.org/abs/1903.04670 
+* **[Jaiswal 2019d]** Jaiswal, S., Pikus, A., Strongrich A., Sebastiao I. B., Hu, J., and Alexeenko, A. A. (2019)
+  *Quantification of thermally-driven flows in microsystems using Boltzmann equation in deterministic and stochastic context.* preprint: https://arxiv.org/abs/1905.01385 
 * **[Mieussens 2000]** Mieussens, L. (2000) 
   *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
 
