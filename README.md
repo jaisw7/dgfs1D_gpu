@@ -110,6 +110,10 @@ CentOS 7.4.1708 (Core) with NVIDIA Tesla-P100 GPU accompanying CUDA driver 8.0 a
 16GB device memory, and compute capability of 6.0.The solver has been written in Python/PyCUDA and is compiled using OpenMPI 2.1.0, 
 g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the simulations are done with double precision floating point values.
 
+**SPARTA Notes** 
+* Specifically for multi-species cases, the SPARTA versions before 4Apr-18 may not yeild correct results. Please try recent versions. 
+* If the provided SPARTA input script doesn't run on the first attempt, try reading through SPARTA documentation. There may be changes in the command styles.
+
 ### References:
 * **[Karniadakis 1999]** Karniadakis, George, and Spencer Sherwin. 
   *Spectral/hp element methods for computational fluid dynamics.* Oxford University Press, 2013.
