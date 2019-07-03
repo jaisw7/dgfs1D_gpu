@@ -1,7 +1,7 @@
-#-- 2D Flow Around a Circle
-#-- /scratch/rice/i/isebasti/SPARTA/sparta-8Sep16/examples/circle
-#-- Prepared by Israel B. Sebastião (Purdue AAE) for AAE590-SPARTA Tutorial
-#-- Updated: 20 Sep 2016 (v0:18 Sep 2016)
+# Jaiswal, Shashank, Alina A. Alexeenko, and Jingwei Hu. 
+# "A discontinuous Galerkin fast spectral method for multi-species 
+# full Boltzmann equation."
+# Computer Methods in Applied Mechanics and Engineering 352 (2019): 56-84. 
 
 ############################# Initialization ##################################
 
