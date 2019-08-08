@@ -128,7 +128,7 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
 * **[Jaiswal 2019c]** Jaiswal, S., Hu, J., and Alexeenko, A. A. (2019)
   *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* Proceedings of the Platform for Advanced Scientific Computing Conference (ACM PASC'19) 4:1-4:9. https://doi.org/10.1145/3324989.3325714
 * **[Jaiswal 2019d]** Jaiswal, S., Pikus, A., Strongrich A., Sebastiao I. B., Hu, J., and Alexeenko, A. A. (2019)
-  *Quantification of thermally-driven flows in microsystems using Boltzmann equation in deterministic and stochastic context.* preprint: https://arxiv.org/abs/1905.01385 
+  *Quantification of thermally-driven flows in microsystems using Boltzmann equation in deterministic and stochastic context.* Physics of Fluids 31(8): 082002. https://doi.org/10.1063/1.5108665
 * **[Mieussens 2000]** Mieussens, L. (2000) 
   *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
 
