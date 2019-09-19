@@ -1,7 +1,8 @@
-#-- 2D Flow Around a Circle
-#-- /scratch/rice/i/isebasti/SPARTA/sparta-8Sep16/examples/circle
-#-- Prepared by Israel B. Sebastião (Purdue AAE) for AAE590-SPARTA Tutorial
-#-- Updated: 20 Sep 2016 (v0:18 Sep 2016)
+# Gallis, M. A., D. J. Rader, and J. R. Torczynski.
+# "Calculations of the near-wall thermophoretic force in rarefied gas flow." 
+# Physics of Fluids 14.12 (2002): 4290-4301.
+
+# Case: Kn = 0.4745 (Cercignani's definition of Knudsen number)
 
 ############################# Initialization ##################################
 
@@ -90,9 +91,9 @@ run                1000000 #1000000
 
 collide_modify     vremax 100000 yes
 
-compute            cgrid grid species n nrho massrho u v #tvib trot
-compute            cthermal thermal/grid species temp press
-fix                fgrid ave/grid 1 10000000 10000000 c_cgrid[*] c_cthermal[*] ave running #instead of 1 100000 100000
+compute            cgrid grid all species n nrho massrho u v #tvib trot
+compute            cthermal thermal/grid all species temp press
+fix                fgrid ave/grid all 1 10000000 10000000 c_cgrid[*] c_cthermal[*] ave running #instead of 1 100000 100000
 #compute            clambda lambda/grid f_fgrid[2] f_fgrid[8] N2 kall
 
 dump               dgrid grid all 10000000 prop_grid.*.dat id xlo ylo f_fgrid[*] #c_clambda[*] #instead of 100000

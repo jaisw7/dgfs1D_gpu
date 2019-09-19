@@ -1,4 +1,4 @@
-### Discontinuous Galerkin Fast Spectral (DGFS) in one dimension
+### 1D3V Discontinuous Galerkin Fast Spectral (DGFS)
 This is a research code, written, so as to demonstrate that one can solve the full Boltzmann in ~6 seconds for common standard rarefied 1D problems such as couette/fourier/osc-couette.
 
 The codebase consists of the single/multi species high order discontinuous Galerkin solver utilizing Fast fourier transform for evaluating the collision operator. 
@@ -110,6 +110,10 @@ CentOS 7.4.1708 (Core) with NVIDIA Tesla-P100 GPU accompanying CUDA driver 8.0 a
 16GB device memory, and compute capability of 6.0.The solver has been written in Python/PyCUDA and is compiled using OpenMPI 2.1.0, 
 g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the simulations are done with double precision floating point values.
 
+**SPARTA Notes** 
+* Specifically for multi-species cases, the SPARTA versions before 4Apr-18 may not yeild correct results. Please try recent versions. 
+* If the provided SPARTA input script doesn't run on the first attempt, try reading through SPARTA documentation. There may be changes in the command styles.
+
 ### References:
 * **[Karniadakis 1999]** Karniadakis, George, and Spencer Sherwin. 
   *Spectral/hp element methods for computational fluid dynamics.* Oxford University Press, 2013.
@@ -117,12 +121,14 @@ g++ 5.2.0, and nvcc 8.0.61 compiler with third level optimization flag. All the 
   *Nodal discontinuous Galerkin methods: algorithms, analysis, and applications.* Springer Science & Business Media, 2007.
 * **[Gamba 2017]** Gamba, I. M., Haack, J. R., Hauck, C. D., & Hu, J. (2017). 
   *A fast spectral method for the Boltzmann collision operator with general collision kernels.* SIAM Journal on Scientific Computing, 39(4), B658-B674.
-* **[Jaiswal 2019a]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
-  *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208.. 
-* **[Jaiswal 2019b]** Jaiswal, Alexeenko, A. A., and Hu, J. (2019)
-  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* preprint: https://arxiv.org/abs/1903.03056
-* **[Jaiswal 2019c]** Jaiswal, Hu, J., and Alexeenko, A. A. (2019)
-  *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* preprint: https://arxiv.org/abs/1903.04670 
+* **[Jaiswal 2019a]** Jaiswal, S., Alexeenko, A. A., and Hu, J. (2019)
+  *A discontinuous Galerkin fast spectral method for the full Boltzmann equation with general collision kernels.* Journal of Computational Physics 378: 178-208. https://doi.org/10.1016/j.jcp.2018.11.001
+* **[Jaiswal 2019b]** Jaiswal, S., Alexeenko, A. A., and Hu, J. (2019)
+  *A discontinuous Galerkin fast spectral method for the multi-species full Boltzmann equation.* Computer Methods in Applied Mechanics and Engineering 352: 56-84. https://doi.org/10.1016/j.cma.2019.04.015
+* **[Jaiswal 2019c]** Jaiswal, S., Hu, J., and Alexeenko, A. A. (2019)
+  *A discontinuous Galerkin fast spectral method for multi-species full Boltzmann equation on streaming multi-processors.* Proceedings of the Platform for Advanced Scientific Computing Conference (ACM PASC'19) 4:1-4:9. https://doi.org/10.1145/3324989.3325714
+* **[Jaiswal 2019d]** Jaiswal, S., Pikus, A., Strongrich A., Sebastiao I. B., Hu, J., and Alexeenko, A. A. (2019)
+  *Quantification of thermally-driven flows in microsystems using Boltzmann equation in deterministic and stochastic context.* Physics of Fluids 31(8): 082002. https://doi.org/10.1063/1.5108665
 * **[Mieussens 2000]** Mieussens, L. (2000) 
   *Discrete-velocity models and numerical schemes for the Boltzmann-BGK equation in plane and axisymmetric geometries.* Journal of Computational Physics 162.2: 429-466.
 

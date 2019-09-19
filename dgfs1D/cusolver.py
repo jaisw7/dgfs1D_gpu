@@ -6,7 +6,7 @@ import ctypes
 import ctypes.util
 import os
 import sys
-from cgfs1D.cublas import CUBLASWrappers
+from dgfs1D.cublas import CUBLASWrappers
 from pycuda import gpuarray
 
 def platform_libname(name):
