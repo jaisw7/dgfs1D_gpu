@@ -20,7 +20,8 @@ def initialize():
     # Restart command
     ap_restart = sp.add_parser('restart', help='restart --help')
     ap_restart.add_argument('inp', type=FileType('r'), help='input file')
-    ap_restart.add_argument('dist', type=FileType('r'), help='distribution')
+    ap_restart.add_argument('dist', nargs='+', action='append', 
+        type=FileType('r'), default=[], help='sorted list of distributions')
     ap_restart.add_argument('-v', nargs=2, action='append', default=[], 
         help='substitute variables. Example: -v mesh::Ne 4')
     ap_restart.set_defaults(process_restart=True)
