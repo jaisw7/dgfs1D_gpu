@@ -23,6 +23,7 @@ from dgfs1D.std.initcond import DGFSInitConditionStd
 from dgfs1D.std.moments import DGFSMomWriterStd
 from dgfs1D.std.residual import DGFSResidualStd
 from dgfs1D.std.distribution import DGFSDistributionStd
+from dgfs1D.std.distributionslice import DGFSDistributionSliceStd
 from dgfs1D.std.bc import DGFSBCStd
 from dgfs1D.axnpby import get_axnpby_kerns
 from dgfs1D.util import get_kernel, filter_tol, check
@@ -218,9 +219,8 @@ def main():
     # check if we are restarting
     if hasattr(args, 'process_restart'):
         import h5py as h5py
-        filename = args.dist.name + '_rank=' + str(rank)
-        check(os.file.exists(filename), "Distribution missing")
-        with h5py.File(args.dist.name, 'r') as h5f:
+        check(len(args.dist[0])==comm.size, "No. of distributions != nranks")
+        with h5py.File(args.dist[0][rank].name, 'r') as h5f:
             dst = h5f['coeff']
             ti = dst.attrs['time']
             d_ucoeff.set(dst[:])
@@ -242,6 +242,10 @@ def main():
     # For writing distribution function
     distribution = DGFSDistributionStd(ti, (K, Ne, Nv), cfg, 
         'dgfsdistwriter')
+
+    # For writing distribution slice
+    distributionslice = DGFSDistributionSliceStd(ti, (K, Ne, Nv), 
+        basis.interpMat, vm, cfg, 'dgfsdistslicewriter')
 
     # Actual algorithm
 
@@ -368,6 +372,7 @@ def main():
         residual(time, nacptsteps, d_ucoeff, d_ucoeffPrev)
         moments(dt, time, d_ucoeff)
         distribution(dt, time, d_ucoeff)
+        distributionslice(dt, time, d_ucoeff)
 
         # copy the solution for the next time step
         cuda.memcpy_dtod(d_ucoeffPrev.ptr, d_ucoeff.ptr, d_ucoeff.nbytes)

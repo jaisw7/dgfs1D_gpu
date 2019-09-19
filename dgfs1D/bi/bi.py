@@ -220,9 +220,8 @@ def main():
     # check if we are restarting
     if hasattr(args, 'process_restart'):
         import h5py as h5py
-        filename = args.dist.name + '_rank=' + str(rank)
-        check(os.file.exists(filename), "Distribution missing")
-        with h5py.File(args.dist.name, 'r') as h5f:
+        check(len(args.dist[0])==comm.size, "No. of distributions != nranks")
+        with h5py.File(args.dist[0][rank].name, 'r') as h5f:
             for p, d_ucoeff in enumerate(d_ucoeffs): 
                 dst = h5f['coeff'+str(p)]
                 ti = dst.attrs['time']
