@@ -360,7 +360,7 @@ def main():
     nacptsteps = 0 # number of elasped steps in the current run
 
     # start timer
-    start = MPI.Wtime()  # timer()
+    start = timer()
 
     while(time < tf):
 
@@ -382,9 +382,12 @@ def main():
 
 
     # print elasped time
-    end = MPI.Wtime()  # timer()
+    end = timer()
+    elapsed = np.array([end - start])
     if rank==root:
-        print("Nsteps", nacptsteps, ", elasped time", end - start, "s")
+        comm.Allreduce(get_mpi('in_place'), elapsed, op=get_mpi('sum'))
+        avgtime = elapsed[0]/comm.size
+        print("Nsteps", nacptsteps, ", elapsed time", avgtime, "s")
 
 
 def __main__():
