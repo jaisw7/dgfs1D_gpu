@@ -12,7 +12,7 @@ class DGFSResidualBi():
         self.nsteps = cfg.lookupint(cfgsect, 'nsteps')
 
     def __call__(self, tcurr, nsteps, solprevs, solcurrs):
-        if nsteps % self.nsteps == 0: 
+        if (nsteps % self.nsteps == 0) or nsteps==1: 
             comm, rank, root = get_comm_rank_root()
             res_num = np.array([gpuarray.sum((solcurr-solprev)**2).get() 
                         for solprev, solcurr in zip(solprevs, solcurrs)])
