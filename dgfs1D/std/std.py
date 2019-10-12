@@ -244,8 +244,11 @@ def main():
         'dgfsdistwriter')
 
     # For writing distribution slice
-    distributionslice = DGFSDistributionSliceStd(ti, (K, Ne, Nv), 
-        basis.interpMat, vm, cfg, 'dgfsdistslicewriter')
+    if(cfg.has_section('dgfsdistslicewriter')):
+        distributionslice = DGFSDistributionSliceStd(ti, (K, Ne, Nv), 
+            basis.interpMat, vm, cfg, 'dgfsdistslicewriter')
+    else:
+        distributionslice = lambda *args: None 
 
     # Actual algorithm
 
