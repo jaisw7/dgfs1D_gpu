@@ -37,6 +37,9 @@ class Dictionary(object):
 
         return Dictionary(file.read(), defaults=defaults)
 
+    def has_section(self, section):
+        return self._cp.has_section(section)
+
     def lookup(self, section, option, vars=None):
         val = self._cp.get(section, option, vars=vars)
         return os.path.expandvars(val)
