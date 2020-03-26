@@ -51,7 +51,7 @@ class DGFSVelocityMeshStd(object):
         self._S = self._L*2.0/(3.0+np.sqrt(2.0));
         self._R = 2*self._S;
         print("velocityMesh: (%s %s)"%(-self._L,self._L))
-        print("n0, u0: (%s %s)"%(self._n0, self._u0))
+        print("n0, u0, t0: (%s %s %s)"%(self._n0, self._u0, self._H0/self._u0))
 
         # define the weight of the velocity mesh
         self._cw = (2.0*self._L/self._Nv)**3
