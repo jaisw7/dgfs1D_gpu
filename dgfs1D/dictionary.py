@@ -66,7 +66,7 @@ class Dictionary(object):
         expr = self.lookup(section, option)
 
         # Ensure the expression does not contain invalid characters
-        if not re.match(r'[A-Za-z0-9 \t\n\r.,+\-*/%()]+$', expr):
+        if not re.match(r'[A-Za-z0-9 \t\n\r.,+\-*/%()<>=]+$', expr):
             raise ValueError('Invalid characters in expression')
 
         # Substitute variables
@@ -97,6 +97,15 @@ class Dictionary(object):
         buf = io.StringIO()
         self._cp.write(buf)
         return buf.getvalue()
+
+    def section_values(self, section, type):
+        iv = []
+        for k, v in self._cp.items(section):
+            try:
+                iv.append((k, type(v)))
+            except ValueError:
+                pass
+        return dict(iv)
 
     # Global configurations that are required in all systems
     @property
