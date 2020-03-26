@@ -12,7 +12,7 @@ from dgfs1D.cufft import (cufftPlan3d, cufftPlanMany,
                         )
 import pycuda.driver as cuda
 from dgfs1D.nputil import get_grid_for_block
-from pyfr.sphericaldesign import get_sphquadrule
+from dgfs1D.sphericaldesign import get_sphquadrule
 import itertools as it
 from dgfs1D.util import get_kernel, check
 
