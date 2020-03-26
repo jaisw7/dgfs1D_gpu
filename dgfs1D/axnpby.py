@@ -4,6 +4,9 @@ import pycuda.driver as cuda
 from mako.template import Template
 from dgfs1D.util import np_rmap, get_kernel
 
+# copy
+copy = lambda to, fr: cuda.memcpy_dtod(to.ptr, fr.ptr, fr.nbytes)
+
 axnpbysrc = """
 #define scalar ${dtype}
 
