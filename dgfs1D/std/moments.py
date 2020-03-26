@@ -53,13 +53,20 @@ class DGFSMomWriterStd():
 
         # non-dimensional heat-flux
         ele_sol[:,:,4] = mr*np.einsum('...j,...j,...j->...', soln,cSqr,cx)*mcw
+        ele_sol[:,:,5] = mr*np.einsum('...j,...j,...j->...', soln,cSqr,cy)*mcw
 
-        # dimensional rho, ux, uy, T, qx
-        ele_sol[:,:,0:5] *= np.array([
-            rho0, u0, u0, T0, 0.5*rho0*(u0**3)]).reshape(1,1,5)
+        # non-dimensional pressure-tensor components
+        ele_sol[:,:,6] = 2*mr*np.einsum('...j,...j,...j->...', soln,cx,cx)*mcw
+        ele_sol[:,:,7] = 2*mr*np.einsum('...j,...j,...j->...', soln,cy,cy)*mcw
+        ele_sol[:,:,8] = 2*mr*np.einsum('...j,...j,...j->...', soln,cx,cy)*mcw
+
+        # dimensional rho, ux, uy, T, qx, qy, Pxx, Pyy, Pxy
+        ele_sol[:,:,0:9] *= np.array([rho0, u0, u0, T0, 
+            0.5*rho0*(u0**3), 0.5*rho0*(u0**3), 
+            0.5*rho0*(u0**2), 0.5*rho0*(u0**2), 0.5*rho0*(u0**2)]).reshape(1,1,9)
 
         # dimensional pressure
-        ele_sol[:,:,5] = (
+        ele_sol[:,:,9] = (
             (mr*vm.R0/molarMass0)*ele_sol[:,:,0]*ele_sol[:,:,3])
 
 
@@ -75,7 +82,8 @@ class DGFSMomWriterStd():
             self.basename += extn
 
         # these variables are computed
-        privarmap = ['rho', 'U:x', 'U:y', 'T', 'Q:x', 'p']
+        privarmap = ['rho', 'U:x', 'U:y', 'T', 'Q:x', 'Q:y', 'P:xx', 'P:yy', 
+                    'P:xy', 'p']
         Ns = len(privarmap)
         self.fields = ", ".join(privarmap)
 
