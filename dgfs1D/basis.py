@@ -67,6 +67,10 @@ class Basis(object, metaclass=ABCMeta):
         # inverse matrix operation
         self._invMKern = lambda *args: None
 
+        # for computing cell average
+        self.computeCellAvgKern = lambda *args: None
+        self.extractDrLinKern = lambda *args: None
+
     @property
     def fwdTransOp(self): return self._fwdTransKern
 
@@ -114,6 +118,9 @@ class Basis(object, metaclass=ABCMeta):
 
     @property
     def interpMat(self): return self._interpMat
+
+    @property
+    def derivMat(self): return self._derivMat
 
     @property
     def sigModes(self): return self._sigModes
@@ -224,7 +231,8 @@ class NodalSemGLL(Basis):
 
         # interpolation operator
         Nqr = self.cfg.lookupint(basissect, 'Nqr')
-        zr = np.linspace(-1., 1., Nqr) # the reconstruction points
+        #zr = np.linspace(-1., 1., Nqr) # the reconstruction points
+        zr, _ = zwglj(Nqr, 0., 0.) # the reconstruction points
         Br = nodal_basis_at(self._K, self._z, zr).T  # at "recons" points
         #self._interpMat = np.einsum('kr,kq->rq', Br, self._fwdTransMat)
         self._interpMat = Br
@@ -232,6 +240,7 @@ class NodalSemGLL(Basis):
         # the H tensor (see J. Comput. Phys. 378, 178-208, 2019)
         H = np.einsum("mq,aq,bq,q->mab", self._B, self._B, self._B, self._w)
         invM_H = np.einsum("ml,mab->lab", self._invM, H)
+        #invM_H = H
 
         # svd decomposition
         # defines the U, V matrices, and identifies the significant modes
@@ -248,7 +257,8 @@ class NodalSemGLL(Basis):
 
         # define the {K-1} order derivative matrix 
         D = jac_nodal_basis_at(self._K, self._z, self._z)[0]
-        self._Sx = D 
+        self._Sx = D #np.matmul(self._M, D.T)
+        self._derivMat = self._Sx.T
 
         # define the operator for reconstructing solution at faces
         self._Nqf = 2  # number of points used in reconstruction at faces
@@ -278,6 +288,132 @@ class NodalSemGLL(Basis):
         for m in range(self._K):
             self._uTransKerns[m] = get_mm_kernel(self._U[m].T)
             self._vTransKerns[m] = get_mm_kernel(self._V[m])
+
+        # operators for limiting
+        V = ortho_basis_at(self._K, self._z).T;
+        invV = np.linalg.inv(V); 
+        
+        computeCellAvgOp = V.copy(); computeCellAvgOp[:,1:] = 0;
+        computeCellAvgOp = np.matmul(computeCellAvgOp, invV);
+        
+        extractLinOp = V.copy(); extractLinOp[:,2:] = 0; 
+        extractLinOp = np.matmul(extractLinOp, invV);
+        extractDrLinOp = np.matmul(D.T, extractLinOp);
+
+        self.computeCellAvgKern, self.extractDrLinKern = map(get_mm_kernel, 
+            (computeCellAvgOp, extractDrLinOp)
+        )
+
+        """
+        uhr = np.array([[0.8147,    0.9134,    0.2785], 
+                        [0.9058,    0.6324,    0.5469],
+                        [0.1270,    0.0975,    0.9575]]);
+        print(computeCellAvgOp); print(np.matmul(computeCellAvgOp, uhr))
+        #print(extractDrLinOp); print(np.matmul(extractDrLinOp, uhr))
+        d_uhr = gpuarray.to_gpu(uhr.ravel());
+        d_out = gpuarray.to_gpu(uhr.ravel());
+        block = (128, 1, 1)
+        grid = (1, 1)
+        self.computeCellAvgKern.prepared_call(
+                grid, block, 3, d_uhr.ptr, 3, d_out.ptr, 3)
+        print(d_uhr.get())
+        print(d_out.get())
+        exit()
+        """
+
+
+# The nodal DG due to Hasthaven.
+class NodalGLL(Basis):
+    basis_kind = 'nodal-gll'
+
+    def __init__(self, cfg, **kwargs):
+        super().__init__(cfg, **kwargs)
+
+        # number of quadrature points inside each element
+        self._Nq = self._K
+
+        # the Gauss-Lobatto quadrature on standard interval
+        self._z, self._w = zwglj(self._Nq, 0., 0.)
+
+        # define the lagrange nodal basis
+        #self._B = nodal_basis_at(self._K, self._z, self._z).T
+        self._B = ortho_basis_at(self._K, self._z).T
+
+        # define the mass matrix 
+        # since the basis is identity, this just have weights on diagonal
+        self._invM = np.matmul(self._B, self._B.T)
+        self._M = np.linalg.inv(self._invM)
+
+        # Forward transform operator 
+        I = np.eye(self._K)
+        self._fwdTransMat = I # identity
+
+        # interpolation operator
+        Nqr = self.cfg.lookupint(basissect, 'Nqr')
+        zr, _ = zwglj(Nqr, 0., 0.) # the reconstruction points
+        Br = nodal_basis_at(self._K, self._z, zr).T  # at "recons" points
+        self._interpMat = Br
+
+        # the H tensor (see J. Comput. Phys. 378, 178-208, 2019)
+        #H = np.einsum("mq,aq,bq,q->mab", self._B, self._B, self._B, self._w)
+        #invM_H = np.einsum("ml,mab->lab", self._invM, H)
+        # this is an approximation ... Here we have used mass lumping.
+        H = invM_H = np.einsum("mq,aq,bq->mab", I, I, I)
+
+        # svd decomposition
+        # defines the U, V matrices, and identifies the significant modes
+        U, V, sigModes = [0]*self._K, [0]*self._K, [0]*self._K
+        for m in range(self._K):
+            u, s, v = np.linalg.svd(invM_H[m,:,:])
+            U[m], V[m] = u, np.dot(np.diag(s),v)
+            U[m], V[m] = map(filter_tol, (U[m], V[m]))
+            nnzUm = np.where(np.sum(U[m], axis=0)!=0)[0]
+            nnzVm = np.where(np.sum(V[m], axis=1)!=0)[0]
+            sigModes[m] = np.intersect1d(nnzUm, nnzVm)
+        
+        self._U, self._V, self._sigModes = U, V, sigModes
+
+        # define the {K-1} order derivative matrix 
+        D = jac_nodal_basis_at(self._K, self._z, self._z)[0]
+        self._Sx = D 
+        self._derivMat = self._Sx.T
+
+        # define the operator for reconstructing solution at faces
+        self._Nqf = self._K  # number of points used in reconstruction at faces
+        self._Bqf = I
+
+        # define the correction functions at the left and right boundaries
+        self._gLD, self._gRD = self._invM[0,:], self._invM[-1,:]
+
+        # prepare kernels
+        # fwdTrans, bwdTrans just copy data
+        self._fwdTransKern = get_mm_kernel(self._fwdTransMat)
+        self._bwdTransKern = get_mm_kernel(I)
+        self._bwdTransFaceKern = get_mm_kernel(self._Bqf.T)
+        self._derivKern = get_mm_kernel(self._Sx.T)
+        self._invMKern = get_mm_kernel(I)
+
+        # U, V operator kernels
+        for m in range(self._K):
+            self._uTransKerns[m] = get_mm_kernel(self._U[m].T)
+            self._vTransKerns[m] = get_mm_kernel(self._V[m])
+
+        # operators for limiting
+        V = ortho_basis_at(self._K, self._z).T;
+        invV = np.linalg.inv(V); 
+        
+        computeCellAvgOp = V.copy(); computeCellAvgOp[:,1:] = 0;
+        computeCellAvgOp = np.matmul(computeCellAvgOp, invV);
+        
+        extractLinOp = V.copy(); extractLinOp[:,2:] = 0; 
+        extractLinOp = np.matmul(extractLinOp, invV);
+        extractDrLinOp = np.matmul(D.T, extractLinOp);
+
+        self.computeCellAvgKern, self.extractDrLinKern = map(get_mm_kernel, 
+            (computeCellAvgOp, extractDrLinOp)
+        )
+
+ 
 
 
 # The "modified" modal basis based on Karniadakis 1999
@@ -369,3 +505,100 @@ class ModalModifiedKarniadakis(Basis):
         for m in range(self._K):
             self._uTransKerns[m] = get_mm_kernel(self._U[m].T)
             self._vTransKerns[m] = get_mm_kernel(self._V[m])
+
+
+
+
+
+# The classic sem nodal basis based on lagrange polynomials on GLL
+class NodalSemGLL2(Basis):
+    basis_kind = 'nodal-sem-gll-2'
+
+    def __init__(self, cfg, **kwargs):
+        super().__init__(cfg, **kwargs)
+
+        # number of quadrature points inside each element
+        self._Nq = self._K
+
+        # the Gauss-Lobatto quadrature on standard interval
+        self._z, self._w = zwglj(self._Nq, 0., 0.)
+
+        # define the lagrange nodal basis
+        self._B = nodal_basis_at(self._K, self._z, self._z).T
+
+        # define the mass matrix 
+        # since the basis is identity, this just have weights on diagonal
+        self._M = np.einsum("mq,q,lq->ml", self._B, self._w, self._B)
+        self._invM = np.linalg.inv(self._M)
+
+        # Forward transform operator 
+        self._fwdTransMat = self._B # identity
+
+        # interpolation operator
+        Nqr = self.cfg.lookupint(basissect, 'Nqr')
+        #zr = np.linspace(-1., 1., Nqr) # the reconstruction points
+        zr, _ = zwglj(Nqr, 0., 0.) # the reconstruction points
+        Br = nodal_basis_at(self._K, self._z, zr).T  # at "recons" points
+        #self._interpMat = np.einsum('kr,kq->rq', Br, self._fwdTransMat)
+        self._interpMat = Br
+
+        # the H tensor (see J. Comput. Phys. 378, 178-208, 2019)
+        H = np.einsum("mq,aq,bq,q->mab", self._B, self._B, self._B, self._w)
+        invM_H = np.einsum("ml,mab->lab", self._invM, H)
+        invM_H = H
+
+        # svd decomposition
+        # defines the U, V matrices, and identifies the significant modes
+        U, V, sigModes = [0]*self._K, [0]*self._K, [0]*self._K
+        for m in range(self._K):
+            u, s, v = np.linalg.svd(invM_H[m,:,:])
+            U[m], V[m] = u, np.dot(np.diag(s),v)
+            U[m], V[m] = map(filter_tol, (U[m], V[m]))
+            nnzUm = np.where(np.sum(U[m], axis=0)!=0)[0]
+            nnzVm = np.where(np.sum(V[m], axis=1)!=0)[0]
+            sigModes[m] = np.intersect1d(nnzUm, nnzVm)
+        
+        self._U, self._V, self._sigModes = U, V, sigModes
+
+        # define the {K-1} order derivative matrix 
+        D = jac_nodal_basis_at(self._K, self._z, self._z)[0]
+        self._Sx = np.matmul(self._M, D.T).T
+        self._derivMat = self._Sx.T
+
+        # define the operator for reconstructing solution at faces
+        self._Nqf = 2  # number of points used in reconstruction at faces
+        zqf, _ = zwglj(self._Nqf, 0., 0.)
+        self._Bqf = nodal_basis_at(self._K, self._z, zqf).T
+
+        # define the correction functions at the left and right boundaries
+        self._gLD = self._Bqf[:,0] #/self._w[0] 
+        self._gRD = self._Bqf[:,-1] #/self._w[-1]
+        #gLD, gRD = invM[0,:], invM[-1,:]
+
+        # prepare kernels
+        # since B is identity, (fwdTrans, bwdTrans) just copy data
+        self._fwdTransKern = get_mm_kernel(self._fwdTransMat)
+        self._bwdTransKern = get_mm_kernel(self._B.T)
+        self._bwdTransFaceKern = get_mm_kernel(self._Bqf.T)
+        self._derivKern = get_mm_kernel(self._Sx.T)
+        self._invMKern = get_mm_kernel(self._invM.T)
+
+        # U, V operator kernels
+        for m in range(self._K):
+            self._uTransKerns[m] = get_mm_kernel(self._U[m].T)
+            self._vTransKerns[m] = get_mm_kernel(self._V[m])
+
+        # operators for limiting
+        V = ortho_basis_at(self._K, self._z).T;
+        invV = np.linalg.inv(V); 
+        
+        computeCellAvgOp = V.copy(); computeCellAvgOp[:,1:] = 0;
+        computeCellAvgOp = np.matmul(computeCellAvgOp, invV);
+        
+        extractLinOp = V.copy(); extractLinOp[:,2:] = 0; 
+        extractLinOp = np.matmul(extractLinOp, invV);
+        extractDrLinOp = np.matmul(D.T, extractLinOp);
+
+        self.computeCellAvgKern, self.extractDrLinKern = map(get_mm_kernel, 
+            (computeCellAvgOp, extractDrLinOp)
+        )

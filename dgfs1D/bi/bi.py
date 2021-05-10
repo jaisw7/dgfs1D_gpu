@@ -12,6 +12,7 @@ from timeit import default_timer as timer
 import mpi4py.rc
 mpi4py.rc.initialize = False
 
+from dgfs1D.mesh import Mesh
 from dgfs1D.initialize import initialize
 from dgfs1D.nputil import (subclass_where, get_grid_for_block, 
                             DottedTemplateLookup, ndrange)
@@ -37,7 +38,8 @@ def main():
     comm, rank, root = get_comm_rank_root()
 
     # read the inputs (from people)
-    cfg, mesh, args = initialize()
+    cfg, args = initialize()
+    mesh = Mesh(cfg)
 
     # define 1D mesh (construct a 1D world view)
     xmesh = mesh.xmesh

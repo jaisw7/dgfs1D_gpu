@@ -431,3 +431,157 @@ __global__ void output_append_
         //out[(elem*${Ne}+modeout)*${vsize} + idx] += ${prefac}*(in_1[idx].x - in[(modein*${Ne}+elem)*${vsize} + idx]*in_2[idx].x);
     }
 }
+
+
+// Summation
+// From: https://github.com/inducer/pycuda/blob/master/pycuda/reduction.py
+#define BLOCK_SIZE ${block_size}
+#define READ_AND_MAP(i) (in[i].x)
+//#define REDUCE(a, b) ((a+b))
+#define REDUCE(a, b) ((a)>(b) ? (a): (b))
+
+// seq_count and n are fixed for a given velocity mesh size
+__global__ void sumCplx_
+(
+  Cplx* in, scalar *out,
+  unsigned int seq_count, unsigned int n
+)
+{
+  // Needs to be variable-size to prevent the braindead CUDA compiler from
+  // running constructors on this array. Grrrr.
+  __shared__ scalar sdata[BLOCK_SIZE];
+  unsigned int tid = threadIdx.x;
+  unsigned int i = blockIdx.x*BLOCK_SIZE*seq_count + tid;
+  scalar acc = 0.;
+  for(unsigned int s=0; s<seq_count; ++s)
+  {
+    if (i >= n)
+      break;
+
+    acc = REDUCE(acc, READ_AND_MAP(i));
+    i += BLOCK_SIZE;
+  }
+
+  sdata[tid] = acc;
+  __syncthreads();
+
+  #if (BLOCK_SIZE >= 512)
+    if (tid < 256) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 256]); }
+    __syncthreads();
+  #endif
+  #if (BLOCK_SIZE >= 256)
+    if (tid < 128) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 128]); }
+    __syncthreads();
+  #endif
+  #if (BLOCK_SIZE >= 128)
+    if (tid < 64) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 64]); }
+    __syncthreads();
+  #endif
+  
+  if (tid < 32)
+  {
+    // 'volatile' required according to Fermi compatibility guide 1.2.2
+    volatile scalar *smem = sdata;
+    if (BLOCK_SIZE >= 64) smem[tid] = REDUCE(smem[tid], smem[tid + 32]);
+    if (BLOCK_SIZE >= 32) smem[tid] = REDUCE(smem[tid], smem[tid + 16]);
+    if (BLOCK_SIZE >= 16) smem[tid] = REDUCE(smem[tid], smem[tid + 8]);
+    if (BLOCK_SIZE >= 8)  smem[tid] = REDUCE(smem[tid], smem[tid + 4]);
+    if (BLOCK_SIZE >= 4)  smem[tid] = REDUCE(smem[tid], smem[tid + 2]);
+    if (BLOCK_SIZE >= 2)  smem[tid] = REDUCE(smem[tid], smem[tid + 1]);
+  }
+  
+  if (tid == 0) out[blockIdx.x] = sdata[0];
+}
+
+#undef READ_AND_MAP
+#define READ_AND_MAP(i) (in[i])
+// seq_count and n are fixed for a given velocity mesh size
+__global__ void sum_
+(
+  scalar* in, scalar *out,
+  unsigned int seq_count, unsigned int n
+)
+{
+  // Needs to be variable-size to prevent the braindead CUDA compiler from
+  // running constructors on this array. Grrrr.
+  __shared__ scalar sdata[BLOCK_SIZE];
+  unsigned int tid = threadIdx.x;
+  unsigned int i = blockIdx.x*BLOCK_SIZE*seq_count + tid;
+  scalar acc = 0.;
+  for(unsigned int s=0; s<seq_count; ++s)
+  {
+    if (i >= n)
+      break;
+
+    acc = REDUCE(acc, READ_AND_MAP(i));
+    i += BLOCK_SIZE;
+  }
+
+  sdata[tid] = acc;
+  __syncthreads();
+
+  #if (BLOCK_SIZE >= 512)
+    if (tid < 256) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 256]); }
+    __syncthreads();
+  #endif
+  #if (BLOCK_SIZE >= 256)
+    if (tid < 128) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 128]); }
+    __syncthreads();
+  #endif
+  #if (BLOCK_SIZE >= 128)
+    if (tid < 64) { sdata[tid] = REDUCE(sdata[tid], sdata[tid + 64]); }
+    __syncthreads();
+  #endif
+  
+  if (tid < 32)
+  {
+    // 'volatile' required according to Fermi compatibility guide 1.2.2
+    volatile scalar *smem = sdata;
+    if (BLOCK_SIZE >= 64) smem[tid] = REDUCE(smem[tid], smem[tid + 32]);
+    if (BLOCK_SIZE >= 32) smem[tid] = REDUCE(smem[tid], smem[tid + 16]);
+    if (BLOCK_SIZE >= 16) smem[tid] = REDUCE(smem[tid], smem[tid + 8]);
+    if (BLOCK_SIZE >= 8)  smem[tid] = REDUCE(smem[tid], smem[tid + 4]);
+    if (BLOCK_SIZE >= 4)  smem[tid] = REDUCE(smem[tid], smem[tid + 2]);
+    if (BLOCK_SIZE >= 2)  smem[tid] = REDUCE(smem[tid], smem[tid + 1]);
+  }
+  
+  if (tid == 0) out[blockIdx.x] = sdata[0];
+}
+
+
+
+__global__ void nu
+(
+    const int elem,
+    const int mode,
+    const scalar* in,
+    scalar* nu
+)
+{
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    int idx_s = (mode*${Ne}+elem); 
+
+    if(idx<=1) {
+        //nu[idx_s] += ${prefac}*in[idx]*${cw};
+        //nu[idx_s] += in[idx]*${cw};
+        //nu[idx_s] += ${prefac}*in[idx];
+        nu[idx_s] += in[idx];
+    }
+}
+
+
+
+__global__ void nu2
+(
+    const int elem,
+    const int modeout,
+    const Cplx* in,
+    scalar* nu
+)
+{
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+
+    if(idx<${vsize}) {
+        nu[(modeout*${Ne}+elem)*${vsize} + idx] += ${prefac}*in[idx].x;
+    }
+}

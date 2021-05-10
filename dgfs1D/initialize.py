@@ -3,7 +3,6 @@
 from argparse import ArgumentParser, FileType
 import os
 from dgfs1D.dictionary import Dictionary
-from dgfs1D.mesh import Mesh
 import json
 
 def initialize():
@@ -45,7 +44,6 @@ def initialize():
                 else:
                     parent[child] = value
         inp = Dictionary.load(args.inp, defaults=vars)
-        mesh = Mesh(inp)
-        return inp, mesh, args
+        return inp, args
     else:
         ap.print_help()

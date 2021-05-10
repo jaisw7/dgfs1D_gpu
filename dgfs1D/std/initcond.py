@@ -27,7 +27,7 @@ class DGFSInitConditionStd(object, metaclass=ABCMeta):
     def get_init_vals(self):
         return self._init_vals
 
-    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol):
+    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
         initvals = self._init_vals
         for j in range(self.vm.vsize()):
             scal_upts_full[:, :, j] = initvals[j]
@@ -110,8 +110,9 @@ class DGFSMaxwellianInitConditionStd(DGFSInitConditionStd):
             and
             np.allclose(self._Tini*T0, ele_sol[4]*T0, atol=1e-5)
         )):
+            pass
             #raise Warning("Bulk properties not conserved! Check Nv, dev")
-            raise ValueError("Bulk properties not conserved! Check Nv, dev")
+            #raise ValueError("Bulk properties not conserved! Check Nv, dev")
 
     def unondim(self):
         return self._uini
@@ -164,6 +165,182 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
 
         # test the distribution support
         rho_bulk = np.sum(soln)*self.vm.cw()
+        #if( not(
+        #    np.allclose(rhoini, rho_bulk, atol=1e-3)
+        #)):
+        #    raise ValueError("Bulk properties not conserved! Check Nv, dev: %e", rho_bulk)
+
+        return soln
+
+    def ce1(self, rhoini, uxini, uyini, uzini, Tini, 
+            drhoini, duxini, duyini, duzini, dTini):
+        cv = self.vm.cv()
+        uini = np.array([uxini, uyini, uzini]).reshape((3,1))
+        c2 = np.sum((cv-uini)**2, axis=0)
+        soln = ( 
+            (c2/Tini- 2.5)*(cv[0,:]-uxini)*dTini/Tini
+            + 2*((cv[0,:]-uxini)*(cv[0,:]-uxini)/Tini - c2/Tini/3.)*duxini
+            + 2*((cv[0,:]-uxini)*(cv[1,:]-uyini)/Tini )*duyini
+            + 2*((cv[0,:]-uxini)*(cv[2,:]-uzini)/Tini )*duzini
+        )
+        return soln
+
+    def unondim(self):
+        raise ValueError("this model depends on spatial coordinates!")
+
+    def get_init_vals(self):
+        raise ValueError("this model depends on spatial coordinates!")
+
+    def read_params(self, vars):
+        # Get the physical location of each solution point
+        vars.update(self.cfg.section_values('non-dim', np.float64))
+        vars.update(self.cfg.section_values('mesh', np.float64))
+
+        # Evaluate the ICs from the config file
+        self._rhoini = npeval(self.cfg.lookupexpr(self.name,'rho'),vars)/self.vm.rho0()
+        self._uxini = npeval(self.cfg.lookupexpr(self.name,'ux'),vars)/self.vm.u0()
+        self._uyini = npeval(self.cfg.lookupexpr(self.name,'uy'),vars)/self.vm.u0()
+        self._uzini = npeval(self.cfg.lookupexpr(self.name,'uz'),vars)/self.vm.u0()
+        self._Tini = npeval(self.cfg.lookupexpr(self.name,'T'),vars)/self.vm.T0()
+
+    def apply_init_val(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
+
+        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini, 
+            self._uyini, self._uzini, self._Tini)
+
+        def isf(data): return isinstance(data, (self.cfg.dtype, float))
+        def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
+
+        if all(map(isf, [rhoini, uxini, uyini, uzini, Tini])):
+            mxwl = self.maxwellian(rhoini,uxini, uyini, uzini, Tini)
+            for j in range(self.vm.vsize()):
+                scal_upts_full[:, :, j] = mxwl[j]
+        else:
+            rhoini, uxini, uyini, uzini, Tini = map(make_shape, 
+                [rhoini, uxini, uyini, uzini, Tini])
+
+            for upt, elem in ndrange(Nq, Ne):
+                scal_upts_full[upt, elem, :] = self.maxwellian(
+                    rhoini[upt, elem],
+                    uxini[upt, elem], uyini[upt, elem], uzini[upt, elem],
+                    Tini[upt, elem]
+                )
+
+
+    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
+        vars = self._vars
+
+        # Get the physical location of each solution point
+        coords = xsol
+        vars.update(dict({'x': coords}))
+        self.read_params(vars)
+        self.apply_init_val(scal_upts_full, Nq, Ne, xsol, **kwargs)
+
+
+
+class DGFSMaxwellianExprOrder1InitConditionStd(
+        DGFSMaxwellianExprInitConditionStd):
+    """Initial condition with first order term from Chapman-Enskog theory
+    for linear kinetic equations: BGK, ESBGK, Shakov"""
+    model = 'maxwellian-expr-ce1'
+
+    def __init__(self, cfg, velocitymesh, name):
+        super().__init__(cfg, velocitymesh, name)
+
+    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
+        super().apply_init_vals(scal_upts_full, Nq, Ne, xsol, **kwargs)
+
+        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini, 
+            self._uyini, self._uzini, self._Tini)
+
+        def isf(data): return isinstance(data, (self.cfg.dtype, float))
+        def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
+        rhoini, uxini, uyini, uzini, Tini = map(make_shape, 
+                [rhoini, uxini, uyini, uzini, Tini])
+
+        invjac=kwargs.get('mesh').invjac; basis=kwargs.get('basis'); 
+        sm=kwargs.get('sm')
+        ep=1/sm._prefactor
+
+        Dr = basis.derivMat
+        drhoini, duxini, duyini, duzini, dTini = map(
+            lambda v: np.matmul(Dr, v), (rhoini, uxini, uyini, uzini, Tini))
+
+        for upt, elem in ndrange(Nq, Ne):
+            iJ = invjac[elem,0];
+            fac=ep/sm.nu(rhoini[upt, elem], Tini[upt, elem])
+            scal_upts_full[upt, elem, :] *= (1 - fac*self.ce1(
+                rhoini[upt, elem],
+                uxini[upt, elem], uyini[upt, elem], uzini[upt, elem],
+                Tini[upt, elem], 
+                iJ*drhoini[upt, elem],
+                iJ*duxini[upt,elem], iJ*duyini[upt,elem], iJ*duzini[upt,elem],
+                iJ*dTini[upt, elem], 
+            ))
+        
+
+
+class DGFSMaxwellianExprNonDimInitConditionStd(
+        DGFSMaxwellianExprInitConditionStd):
+    model = 'maxwellian-expr-nondim'
+
+    def __init__(self, cfg, velocitymesh, name):
+        super().__init__(cfg, velocitymesh, name)
+
+    def read_params(self, vars):
+        # Get the physical location of each solution point
+        vars.update(self.cfg.section_values('non-dim', np.float64))
+        vars.update(self.cfg.section_values('mesh', np.float64))
+
+        # Evaluate the ICs from the config file
+        self._rhoini = npeval(self.cfg.lookupexpr(self.name,'rho'),vars)
+        self._uxini = npeval(self.cfg.lookupexpr(self.name,'ux'),vars)
+        self._uyini = npeval(self.cfg.lookupexpr(self.name,'uy'),vars)
+        self._uzini = npeval(self.cfg.lookupexpr(self.name,'uz'),vars)
+        self._Tini = npeval(self.cfg.lookupexpr(self.name,'T'),vars)
+
+
+class DGFSMaxwellianExprNonDimOrder1InitConditionStd(
+        DGFSMaxwellianExprNonDimInitConditionStd, 
+        DGFSMaxwellianExprOrder1InitConditionStd):
+    """Initial condition with first order term from Chapman-Enskog theory"""
+    model = 'maxwellian-expr-nondim-ce1'
+
+
+"""
+class DGFSMaxwellianNonDimInitConditionStd(
+        DGFSMaxwellianExprNonDimInitConditionStd):
+    model = 'maxwellian-nondim'
+
+    def get_init_vals(self):
+        scal_upts_full = np.zeros((1,1,vsize))
+        self.apply_init_val(scal_upts_full,1,1,0)
+        return scal_upts_full
+"""
+
+class DGFSSodShockTubeInitConditionStd(DGFSInitConditionStd):
+    model = 'sod-shock-tube'
+
+    def __init__(self, cfg, velocitymesh, name):
+        super().__init__(cfg, velocitymesh, name)
+
+    def load_parameters(self, name):
+        self._vars = {}
+        self.name = name
+        if any(d in self._vars for d in 'xyz'):
+            raise ValueError('Invalid constants (x, y, or z) in config file')
+
+    def perform_precomputation(self):
+        pass
+
+    def maxwellian(self, rhoini, uxini, uyini, uzini, Tini):
+        uini = np.array([uxini, uyini, uzini]).reshape((3,1))
+        soln = ((rhoini/(np.pi*Tini)**1.5)*
+            np.exp(-np.sum((self.vm.cv()-uini)**2, axis=0)/Tini)
+        )
+
+        # test the distribution support
+        rho_bulk = np.sum(soln)*self.vm.cw()
         if( not(
             np.allclose(rhoini, rho_bulk, atol=1e-5)
         )):
@@ -177,37 +354,109 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
     def get_init_vals(self):
         raise ValueError("this model depends on spatial coordinates!")
 
-    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol):
+    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
         vars = self._vars
+
+        # Properties on the left
+        rhol = self.cfg.lookupfloat(self.name,'rho-left')/self.vm.rho0()
+        Tl = self.cfg.lookupfloat(self.name,'T-left')/self.vm.T0()
+        ulx = self.cfg.lookupordefault(self.name,'ux-left', 0.)/self.vm.u0()
+        Ml = self.maxwellian(rhol, ulx, 0., 0., Tl)
+
+        # Properties on the right
+        rhor = self.cfg.lookupfloat(self.name,'rho-right')/self.vm.rho0()
+        Tr = self.cfg.lookupfloat(self.name,'T-right')/self.vm.T0()
+        urx = self.cfg.lookupordefault(self.name,'ux-right', 0.)/self.vm.u0()
+        Mr = self.maxwellian(rhor, urx, 0., 0., Tr)
 
         # Get the physical location of each solution point
         coords = xsol
         vars.update(dict({'x': coords}))
 
-        # Evaluate the ICs from the config file
-        rhoini = npeval(self.cfg.lookupexpr(self.name,'rho'),vars)/self.vm.rho0()
-        uxini = npeval(self.cfg.lookupexpr(self.name,'ux'),vars)/self.vm.u0()
-        uyini = npeval(self.cfg.lookupexpr(self.name,'uy'),vars)/self.vm.u0()
-        uzini = npeval(self.cfg.lookupexpr(self.name,'uz'),vars)/self.vm.u0()
-        Tini = npeval(self.cfg.lookupexpr(self.name,'T'),vars)/self.vm.T0()
-
-        def isf(data): return isinstance(data, self.cfg.dtype)
-
-        if all(map(isf, [rhoini, uxini, uyini, uzini, Tini])):
-            mxwl = self.maxwellian(rhoini,uxini, uyini, uzini,Tini)
-            for j in range(self.vm.vsize()):
-                scal_upts_full[:, :, j] = mxwl[j]
-        else:
-            def shape(ds): 
-                if isf(ds): return np.full((Nq, Ne), ds)
-                else: return ds
-
-            rhoini, uxini, uyini, uzini,Tini = map(shape, 
-                [rhoini, uxini, uyini, uzini,Tini])
-
+        if Ne%2==0:
             for upt, elem in ndrange(Nq, Ne):
-                scal_upts_full[upt, elem, :] = self.maxwellian(
-                    rhoini[upt, elem],
-                    uxini[upt, elem], uyini[upt, elem], uzini[upt, elem],
-                    Tini[upt, elem]
-                )
+                if elem < Ne//2:
+                    scal_upts_full[upt, elem, :] = Ml
+                else:
+                    scal_upts_full[upt, elem, :] = Mr
+        else:
+            raise ValueError("Not implemented")
+
+
+class DGFSSodShockNonDimTubeInitConditionStd(DGFSInitConditionStd):
+    model = 'sod-shock-tube-nondim'
+
+    def __init__(self, cfg, velocitymesh, name):
+        super().__init__(cfg, velocitymesh, name)
+
+    def load_parameters(self, name):
+        self._vars = {}
+        self.name = name
+        if any(d in self._vars for d in 'xyz'):
+            raise ValueError('Invalid constants (x, y, or z) in config file')
+
+    def perform_precomputation(self):
+        pass
+
+    def maxwellian(self, rhoini, uxini, uyini, uzini, Tini):
+        uini = np.array([uxini, uyini, uzini]).reshape((3,1))
+        soln = ((rhoini/(np.pi*Tini)**1.5)*
+            np.exp(-np.sum((self.vm.cv()-uini)**2, axis=0)/Tini)
+        )
+
+        # test the distribution support
+        rho_bulk = np.sum(soln)*self.vm.cw()
+        if( not(
+            np.allclose(rhoini, rho_bulk, atol=1e-5)
+        )):
+            raise ValueError("Bulk properties not conserved! Check Nv, dev: %e" % (rho_bulk))
+
+        return soln
+
+    def unondim(self):
+        raise ValueError("this model depends on spatial coordinates!")
+
+    def get_init_vals(self):
+        raise ValueError("this model depends on spatial coordinates!")
+
+    def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
+        vars = self._vars
+
+        # Get the physical location of each solution point
+        vars.update(self.cfg.section_values('non-dim', np.float64))
+        vars.update(self.cfg.section_values('mesh', np.float64))
+
+        # Get the physical location of each solution point
+        coords = xsol
+        vars.update(dict({'x': coords}))
+
+        # Properties on the left
+        #rhol = self.cfg.lookupfloat(self.name,'rho-left')
+        #Tl = self.cfg.lookupfloat(self.name,'T-left')
+        #ulx = self.cfg.lookupordefault(self.name,'ux-left', 0.)
+        rhol, Tl, ulx = map(lambda v: npeval(self.cfg.lookupexpr(self.name,v),vars), \
+                ('rho-left', 'T-left', 'ux-left'))
+        #Ml = self.maxwellian(rhol, ulx, 0., 0., Tl)
+
+        # Properties on the right
+        #rhor = self.cfg.lookupfloat(self.name,'rho-right')
+        #Tr = self.cfg.lookupfloat(self.name,'T-right')
+        #urx = self.cfg.lookupordefault(self.name,'ux-right', 0.)
+        rhor, Tr, urx = map(lambda v: npeval(self.cfg.lookupexpr(self.name, v),vars), \
+                ('rho-right', 'T-right', 'ux-right'))
+        #Mr = self.maxwellian(rhor, urx, 0., 0., Tr)
+
+        def isf(data): return isinstance(data, (self.cfg.dtype, float))
+        def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
+        rhol, Tl, ulx, rhor, Tr, urx = map(make_shape, 
+                [rhol, Tl, ulx, rhor, Tr, urx])
+
+        xMid = self.cfg.lookupfloat(self.name,'xMid')
+ 
+        for upt, elem in ndrange(Nq, Ne):
+          if coords[upt,elem] <= xMid:
+            Ml = self.maxwellian(rhol[upt,elem], ulx[upt,elem], 0., 0., Tl[upt,elem])
+            scal_upts_full[upt, elem, :] = Ml
+          else:
+            Mr = self.maxwellian(rhor[upt,elem], urx[upt,elem], 0., 0., Tr[upt,elem])
+            scal_upts_full[upt, elem, :] = Mr

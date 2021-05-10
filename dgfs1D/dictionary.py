@@ -7,6 +7,7 @@ import os
 import re
 import numpy as np
 from dgfs1D.util import np_map
+import json
 
 cfgsect = 'config'
 
@@ -29,7 +30,8 @@ class Dictionary(object):
 
         self._dtypename = self.lookupordefault(cfgsect, 'precision', 'double')
         self._dtype = np_map[self._dtypename]
-
+        self._dim = self.lookupordefault(cfgsect, 'dim', 1)
+ 
     @staticmethod
     def load(file, defaults={}):
         if isinstance(file, str):
@@ -66,7 +68,7 @@ class Dictionary(object):
         expr = self.lookup(section, option)
 
         # Ensure the expression does not contain invalid characters
-        if not re.match(r'[A-Za-z0-9 \t\n\r.,+\-*/%()<>=]+$', expr):
+        if not re.match(r'[A-Za-z0-9 \t\n\r.,+\-*/%()<>=\{\}\$]+$', expr):
             raise ValueError('Invalid characters in expression')
 
         # Substitute variables
@@ -93,6 +95,16 @@ class Dictionary(object):
     def lookupints(self, section, options):
         return map(lambda op: self.lookupint(section, op), options)
 
+    def lookup_list(self, section, option, dtype):
+        return np.array(list(map(
+            dtype, json.loads(self.lookup(section, option)))))
+
+    def lookupfloat_list(self, section, option):
+        return self.lookup_list(section, option, self._dtype)
+
+    def lookupint_list(self, section, option):
+        return self.lookup_list(section, option, int)
+
     def __str__(self):
         buf = io.StringIO()
         self._cp.write(buf)
@@ -102,7 +114,11 @@ class Dictionary(object):
         iv = []
         for k, v in self._cp.items(section):
             try:
-                iv.append((k, type(v)))
+                try: 
+                    v.index('[')
+                    iv.append((k, self.lookup_list(section, k, type)))
+                except ValueError:
+                    iv.append((k, type(v)))
             except ValueError:
                 pass
         return dict(iv)
@@ -115,3 +131,7 @@ class Dictionary(object):
     @property
     def dtype(self): 
         return self._dtype
+
+    @property
+    def dim(self): 
+        return self._dim

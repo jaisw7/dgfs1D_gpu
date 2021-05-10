@@ -73,11 +73,12 @@ class DGFSWallDiffuseBCStd(DGFSBCStd):
             self._wall_nden = -(gpuarray.sum(self._bc_vals_num)
                 /gpuarray.sum(self._bc_vals_den)
             )
+            #print(xsol, self._wall_nden.get())
 
         self._updateBCKern = updateBC
 
 
-# enforces the periodic
+# enforces the periodic (processor boundaries)
 class DGFSPeriodicBCStd(DGFSBCStd):
     type = 'dgfs-periodic'
 
@@ -101,7 +102,34 @@ class DGFSPeriodicBCStd(DGFSBCStd):
         applyBCFunc = get_kernel(kernmod, "applyBC", 'PP')
         self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
                                 grid_Nv, block, 
-                                ul.ptr, ur.ptr,  
+                                ul.ptr, ur.ptr
+                            )   
+
+# enforces the cyclic BC
+class DGFSCyclicBCStd(DGFSBCStd):
+    type = 'dgfs-cyclic'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.std.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # copy the left face values to the right
+        applyBCFunc = get_kernel(kernmod, "applyBC", 'PPP')
+        self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
+                                grid_Nv, block, 
+                                ul.ptr, ur.ptr, self._vm.d_cvx().ptr
                             )   
 
 # enforces the purely diffuse wall BC with variable velocity/temperature
@@ -182,7 +210,6 @@ class DGFSInletBCStd(DGFSBCStd):
         bc = initcondcls(cfg, self._vm, cfgsect, wall=False)
         f0 = bc.get_init_vals().reshape(self._vm.vsize(), 1)
         self._d_bnd_f0 = gpuarray.to_gpu(f0)
-        unondim = bc.unondim()
 
         # template
         dfltargs = dict(dtype=cfg.dtypename, 
@@ -198,8 +225,7 @@ class DGFSInletBCStd(DGFSBCStd):
         grid_Nv = get_grid_for_block(block, self._vm.vsize())
 
         # for extracting right face values
-        applyBCFunc = get_kernel(kernmod, "applyBC", 
-            [np.intp]*4+[unondim.dtype])
+        applyBCFunc = get_kernel(kernmod, "applyBC", [np.intp]*4+[cfg.dtype])
         self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
                                 grid_Nv, block, 
                                 ul.ptr, ur.ptr, self._vm.d_cvx().ptr, 
@@ -207,3 +233,95 @@ class DGFSInletBCStd(DGFSBCStd):
                             )
         
         # no update
+
+
+
+# particles freely vanish
+class DGFSVanishBCStd(DGFSBCStd):
+    type = 'dgfs-vanish'
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.std.kernels.bcs', 
+                    dfltargs).get_template(self.type).render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # copy the left face values to the right
+        applyBCFunc = get_kernel(kernmod, "applyBC", [np.intp]*3+[cfg.dtype])
+        self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
+                                grid_Nv, block, 
+                                ul.ptr, ur.ptr, self._vm.d_cvx().ptr, t
+                            )   
+
+
+
+# enforces the inlet boundary condition
+class DGFSInletNonDimBCStd(DGFSBCStd):
+    type = 'dgfs-inlet-nondim'
+
+    def maxwellian(self, rhoini, uxini, uyini, uzini, Tini):
+        uini = np.array([uxini, uyini, uzini]).reshape((3,1))
+        soln = ((rhoini/(np.pi*Tini)**1.5)*
+            np.exp(-np.sum((self.vm.cv()-uini)**2, axis=0)/Tini)
+        )
+
+        # test the distribution support
+        rho_bulk = np.sum(soln)*self.vm.cw()
+        if( not(
+            np.allclose(rhoini, rho_bulk, atol=1e-5)
+        )):
+            raise ValueError("Bulk properties not conserved! Check Nv, dev: %e" % (rho_bulk))
+
+        return soln
+
+
+    def __init__(self, xsol, nl, vm, cfg, cfgsect, **kwargs):
+        
+        super().__init__(xsol, nl, vm, cfg, cfgsect, **kwargs)
+
+        #initcondcls = subclass_where(DGFSInitConditionStd, model='maxwellian-expr-nondim')
+        #bc = initcondcls(cfg, self._vm, cfgsect)
+        #f0 = np.zeros((1,1,self._vm.vsize()))
+        #bc.apply_init_vals(f0, 1, 1, xsol)
+
+        self.vm = self._vm
+        rho,ux,T = map(lambda v: cfg.lookupfloat(cfgsect, v), ('rho', 'ux', 'T')) 
+        f0 = self.maxwellian(rho, ux, 0, 0, T);
+        f0 = f0.reshape(self._vm.vsize(), 1)
+        self._d_bnd_f0 = gpuarray.to_gpu(f0)
+
+        # template
+        dfltargs = dict(dtype=cfg.dtypename, 
+                    vsize=self._vm.vsize(), cw=self._vm.cw(),
+                    nl=nl, x=xsol, u=ux
+                )
+        kernsrc = DottedTemplateLookup('dgfs1D.std.kernels.bcs', 
+                    dfltargs).get_template('dgfs-inlet-nondim').render()
+        kernmod = compiler.SourceModule(kernsrc)
+
+        # block size
+        block = (128, 1, 1)
+        grid_Nv = get_grid_for_block(block, self._vm.vsize())
+
+        # for extracting right face values
+        applyBCFunc = get_kernel(kernmod, "applyBC", [np.intp]*4+[cfg.dtype])
+        self._applyBCKern = lambda ul, ur, t: applyBCFunc.prepared_call(
+                                grid_Nv, block, 
+                                ul.ptr, ur.ptr, self._vm.d_cvx().ptr, 
+                                self._d_bnd_f0.ptr, t
+                            )
+        
+        # no update
+
+
+

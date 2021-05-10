@@ -46,7 +46,7 @@ class DGFSScatteringModelStd(object, metaclass=ABCMeta):
 
     @property
     def omega(self): return self._omega
-    
+
 
 # Simplified VHS model for GLL based nodal collocation schemes
 class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
@@ -55,9 +55,18 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
     def __init__(self, cfg, velocitymesh, **kwargs):
         self._Ne = kwargs.get('Ne')
         basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
-        if basis_kind!='nodal-sem-gll':
+        if self.scattering_model=='vhs-gll' and (basis_kind!='nodal-sem-gll' and basis_kind!='nodal-gll' and basis_kind!='nodal-sem-gll-2'):
             raise RuntimeError("Only tested for nodal basis")
         super().__init__(cfg, velocitymesh, **kwargs)
+
+    @property
+    def prefacBGK(self): return self._prefactorBGK
+
+    @property
+    def prefacESBGK(self): return self._prefactorESBGK
+
+    @property
+    def prefacSK(self): return self._prefactorSK
         
     def load_parameters(self):
         alpha = 1.0
@@ -75,7 +84,26 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
         self._omega = omega
 
         print("Kn:", 1.0/invKn)
-        print("prefactor:", self._prefactor)
+        self._prefactor = 1
+        #print("prefactor:", self._prefactor)
+
+        # Added for penalizing collision operator
+        Pr = self.cfg.lookupordefault('scattering-model', 'Pr', 2./3.)
+        muRef = self.cfg.lookupfloat('scattering-model', 'muRef');
+        
+        t0 = self.vm.H0()/self.vm.u0() # non-dimensionalization time scale
+        visc = muRef*((self.vm.T0()/Tref)**omega) # the viscosity
+        p0 = self.vm.n0()*self.vm.R0/self.vm.NA*self.vm.T0() # non-dim press
+
+        self._prefactorBGK = (t0*1.0*p0/visc)
+        print("prefactorBGK:", self._prefactorBGK)
+        print("Kn-BGK:", 1./self._prefactorBGK)
+        self._prefactorESBGK = (t0*Pr*p0/visc)
+        print("prefactorESBGK:", self._prefactorESBGK)
+        print("Kn-ESBGK:", 1./self._prefactorESBGK)
+        self._prefactorSK = self._prefactorBGK
+        print("prefactorSK:", self._prefactorSK)
+        print("Kn-SHAKOV:", 1./self._prefactorSK)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
@@ -143,7 +171,8 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
             Nrho=Nrho, M=M, 
             vsize=vsize, sw=self.vm.sw(), prefac=self._prefactor, 
             qw=qw, sz=sz, gamma=self._gamma, 
-            L=L, qz=qz, Ne=self._Ne
+            L=L, qz=qz, Ne=self._Ne, block_size=self.block[0], 
+            cw=self.vm.cw()
         )
         src = DottedTemplateLookup(
             'dgfs1D.std.kernels.scattering', dfltargs
@@ -190,9 +219,39 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
         # required by the child class (may be deleted by the child)
         self.module = module
 
+        # compute nu
+        self.nuKern = get_kernel(module, "nu", 'iiPP')
+
+        # compute nu2 (velocity dependent collision frequency)
+        self.nu2Kern = get_kernel(module, "nu2", 'iiPP')
+
+        # sum kernel
+        self.sumCplxKern = get_kernel(module, "sumCplx_", 'PPII')
+        self.sumKern = get_kernel(module, "sum_", 'PPII')
+        grid = self.grid
+        block = self.block
+        seq_count0 = int(4)
+        N = int(vsize)
+        #grid_count0 = int((grid[0] + (-grid[0] % seq_count0)) // seq_count0)
+        grid_count0 = int((grid[0]//seq_count0 + ceil(grid[0]%seq_count0)))
+        d_st = gpuarray.empty(grid_count0, dtype=dtype)
+        d_nutmp = gpuarray.empty(1, dtype=dtype)
+        #seq_count1 = int((grid_count0 + (-grid_count0 % block[0])) // block[0])
+        seq_count1 = int((grid_count0//block[0] + ceil(grid_count0%block[0])))
+        def sum_(d_in, d_out, elem, mode):
+            self.sumCplxKern.prepared_call(
+                (grid_count0,1), block, d_in.ptr, d_st.ptr, seq_count0, N)
+            self.sumKern.prepared_call(
+                (1,1), block, d_st.ptr, d_nutmp.ptr, seq_count1, grid_count0)
+            self.nuKern.prepared_call(
+                (1,1), (1,1,1), elem, mode, d_nutmp.ptr, d_out.ptr)
+        self.nuFunc = sum_
+
         
     #def fs(self, d_arr_in, d_arr_out, elem, modein, modeout):
-    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
+    #def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
+    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout, 
+        d_nu=None):
         d_f0 = d_arr_in.ptr
         d_Q = d_arr_out.ptr
             
@@ -244,6 +303,11 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
         # inverse fft| fC = iff(FTf)
         self.cufftExecT2T(self.planT2T, 
             self.d_FTf.ptr, self.d_fC.ptr, CUFFT_INVERSE)
+
+        if d_nu: 
+            self.nuFunc(self.d_fC, d_nu, elem, modeout)
+            #self.nu2Kern.prepared_call(self.grid, self.block, 
+            #    elem, modeout, self.d_fC.ptr, d_nu.ptr)
         
         # outKern
         self.outAppendKern.prepared_call(self.grid, self.block, 
@@ -639,6 +703,45 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
             self.d_moms[0].ptr, self.d_moms[4].ptr, 
             self.d_fe.ptr, self.d_floc.ptr, d_Q)
 
+
+
+
+
+# Simplified VHS model for GLL based nodal collocation schemes
+class DGFSVHSGLLScatteringModelStd(DGFSVHSGLLScatteringModelStd):
+    scattering_model = 'maxwell-gll'
+
+    def __init__(self, cfg, velocitymesh, **kwargs):
+        self._Ne = kwargs.get('Ne')
+        basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
+        if self.scattering_model=='vhs-gll' and basis_kind!='nodal-sem-gll':
+            raise RuntimeError("Only tested for nodal basis")
+        super().__init__(cfg, velocitymesh, **kwargs)
+
+    @property
+    def prefacBGK(self): return self._prefactorBGK
+
+    @property
+    def prefacESBGK(self): return self._prefactorESBGK
+        
+    def load_parameters(self):
+        self._gamma = 0.
+        self._omega = 1.
+        nd = self.vm.H0()*(self.vm.u0()**2)/self.vm.n0()
+        eps = self.cfg.lookupfloat('scattering-model', 'eps');
+        self._prefactor = nd/eps
+        self._prefactorBGK = self._prefactorESBGK = self._prefactor
+        
+        print("Kn:", 1./eps)
+        print("prefactor:", self._prefactor)
+        print("prefactorBGK:", self._prefactorBGK)
+        print("prefactorESBGK:", self._prefactorESBGK)
+
+    def perform_precomputation(self):
+        super().perform_precomputation()
+
+    def fs(self):
+        super().fs()
 
 
 
@@ -1090,7 +1193,7 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
     def __init__(self, cfg, velocitymesh, **kwargs):
         self._Ne = kwargs.get('Ne')
         basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
-        if basis_kind!='nodal-sem-gll':
+        if basis_kind!='nodal-sem-gll' and basis_kind!='nodal-gll':
             raise RuntimeError("Only tested for nodal basis")
         super().__init__(cfg, velocitymesh, **kwargs)
 
@@ -1277,7 +1380,7 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
     def __init__(self, cfg, velocitymesh, **kwargs):
         self._Ne = kwargs.get('Ne')
         basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
-        if basis_kind!='nodal-sem-gll':
+        if basis_kind!='nodal-sem-gll' and basis_kind!='nodal-gll':
             raise RuntimeError("Only tested for nodal basis")
         super().__init__(cfg, velocitymesh, **kwargs)
 
@@ -1544,7 +1647,7 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
     def __init__(self, cfg, velocitymesh, **kwargs):
         self._Ne = kwargs.get('Ne')
         basis_kind = cfg.lookupordefault('basis', 'kind', 'nodal-sem-gll')
-        if basis_kind!='nodal-sem-gll':
+        if basis_kind!='nodal-sem-gll' and basis_kind!='nodal-gll':
             raise RuntimeError("Only tested for nodal basis")
         super().__init__(cfg, velocitymesh, **kwargs)
 
@@ -1558,7 +1661,8 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         visc = muRef*((self.vm.T0()/Tref)**omega) # the viscosity
         p0 = self.vm.n0()*self.vm.R0/self.vm.NA*self.vm.T0() # non-dim press
 
-        self._prefactor = (t0*Pr*p0/visc)
+        self._prefactor = (t0*p0/visc)
+        #self._prefactor = (t0*Pr*p0/visc)
         self._omega = omega
         self._Pr = Pr
         print("Pr:", self._Pr)
@@ -1742,4 +1846,30 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
             elem, modein, modeout, 
             self.d_momsSk[0].ptr, self.d_momsSk[4].ptr, 
             self.d_feSk.ptr, self.d_floc.ptr, d_Q)
+
+
+
+"""
+class DGFSBGKDirectGLL2ScatteringModelStd(DGFSScatteringModelAstd):
+    scattering_model = 'bgk-direct-gll2'
+
+    def perform_precomputation(self):
+        super().perform_precomputation()
+        self.U = None
+
+    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
+        # Asumption: d_arr_in1 == d_arr_in2
+
+        d_f0 = d_arr_in.ptr
+        d_Q = d_arr_out.ptr
+
+        if(self.U == None):
+            lda = M.shape[0]//self.vm.vsize()
+            self.U = gpuarray.empty(self.nalph, dtype=self.cfg.dtype)
+            self.M = 
+"""
+
+
+
+
 

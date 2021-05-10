@@ -4,7 +4,7 @@ import os
 import numpy as np
 import warnings
 from dgfs1D.quadratures import ortho_basis_at
-from dgfs1D.nputil import get_comm_rank_root, get_mpi
+from dgfs1D.nputil import get_comm_rank_root, get_mpi, sndrange
 
 """Write distribution moments for single-species systems"""
 class DGFSMomWriterStd():
@@ -70,10 +70,78 @@ class DGFSMomWriterStd():
             (mr*vm.R0/molarMass0)*ele_sol[:,:,0]*ele_sol[:,:,3])
 
 
+    def _compute_moments_nD(self, coeff):
+        vm = self.vm
+        cv = vm.cv()
+        Nv = vm.vsize()
+        cw = vm.cw()
+        T0 = vm.T0()
+        rho0 = vm.rho0()
+        molarMass0 = vm.molarMass0()
+        u0 = vm.u0()
+        mr = molarMass0/molarMass0
+        mcw = mr*cw
+
+        ele_sol = self._bulksoln
+        Nqr, Ne, Ns = ele_sol.shape
+        K, Nqr = self.im.shape
+        soln = coeff.get().reshape((K, Ne, Nv))
+        soln = np.einsum('mr,mej->rej', self.im, soln)
+
+        ele_sol.fill(0)
+
+        #non-dimensional mass density
+        ele_sol[:,:,0] = np.einsum('...j->...', soln)*mcw
+
+        if(np.sum(ele_sol[:,:,0])) < 1e-10:
+            warnings.warn("density below 1e-10", RuntimeWarning)
+            return
+        
+        dim = self.cfg.dim
+
+        #non-dimensional velocities
+        for i in range(dim):
+          ele_sol[:,:,i+1] = np.einsum('rej,j->re', soln, cv[i,:])*mcw
+          ele_sol[:,:,i+1] /= ele_sol[:,:,0]
+        nvars = 1+dim
+
+        # peculiar velocity
+        c = [0]*dim
+        for i in range(dim):
+            c[i] = cv[i,:].reshape((1,1,Nv))-ele_sol[:,:,i+1].reshape((Nqr,Ne,1))
+        cSqr = sum([ci*ci for ci in c])
+
+        # non-dimensional temperature
+        ele_sol[:,:,nvars] = np.einsum('...j,...j->...', soln,cSqr)*(2./3.*mcw*mr)
+        ele_sol[:,:,nvars] /= ele_sol[:,:,0]
+        nvars += 1
+
+        # non-dimensional heat-flux
+        for i in range(dim):
+          ele_sol[:,:,nvars+i] = mr*np.einsum('...j,...j,...j->...', soln,cSqr,c[i])*mcw
+        nvars += dim
+
+        # non-dimensional pressure-tensor components
+        for i,j in sndrange(dim,dim):
+          ele_sol[:,:,nvars] = 2*mr*np.einsum('...j,...j,...j->...', soln,c[i],c[j])*mcw
+          nvars += 1
+
+        # dimensional rho, ux, uy, T, qx, qy, Pxx, Pyy, Pxy
+        ele_sol[:,:,0:nvars] *= np.array([rho0, *([u0]*dim), T0, 
+            *([0.5*rho0*(u0**3)]*dim), 
+            *([0.5*rho0*(u0**2)]*int(dim*(dim+1)/2))]).reshape(1,1,nvars)
+
+        # dimensional pressure
+        ele_sol[:,:,nvars] = (
+            (mr*vm.R0/molarMass0)*ele_sol[:,:,0]*ele_sol[:,:,dim+1])
+
+
+
     def __init__(self, tcurr, im, xcoeff, coeff, vm, cfg, cfgsect, 
         suffix=None, extn='.txt'):
 
         self.vm = vm
+        self.cfg = cfg
 
         # Construct the solution writer
         self.basedir = cfg.lookuppath(cfgsect, 'basedir', '.', abs=True)
@@ -84,7 +152,11 @@ class DGFSMomWriterStd():
         # these variables are computed
         privarmap = ['rho', 'U:x', 'U:y', 'T', 'Q:x', 'Q:y', 'P:xx', 'P:yy', 
                     'P:xy', 'p']
+        if cfg.dim==3:
+          privarmap = ['rho', 'U:x', 'U:y', 'U:z', 'T', 'Q:x', 'Q:y', 'Q:z', 'P:xx', 
+                  'P:xy', 'P:xz', 'P:yy', 'P:yz', 'P:zz', 'p']
         Ns = len(privarmap)
+        privarmap = ["x"+str(v) for v in range(cfg.dim)] + privarmap 
         self.fields = ", ".join(privarmap)
 
         # Output time step and next output time
@@ -92,7 +164,8 @@ class DGFSMomWriterStd():
         self.tout_next = tcurr
 
         # get info
-        _, Ne = xcoeff.shape
+        #_, Ne = xcoeff.shape
+        Ne = xcoeff.shape[1]
 
         # define the interpolation operator
         K, Nqr = im.shape
@@ -101,11 +174,15 @@ class DGFSMomWriterStd():
         # size of the output
         self.leaddim = Nqr*Ne
 
-        self.xsol = np.einsum('mr,me->re', self.im, xcoeff)
-        self.xsol = self.xsol.T.reshape((-1,1))*vm.H0()
+        #self.xsol = np.einsum('mr,mej->rej', self.im, xcoeff)
+        self.xsol = (np.matmul(self.im.T, xcoeff.reshape(K,-1)).reshape(Nqr,Ne,-1))*vm.H0()
+        #self.xsol = self.xsol.reshape((-1,1))*vm.H0()
+        #print(self.xsol[:,0,:], self.im)
+        #exit()
 
         # get the entire information
         comm, rank, root = get_comm_rank_root()
+        self.xsol = self.xsol.swapaxes(0,1).reshape(self.leaddim,-1)  
         self.xsol = comm.gather(self.xsol, root=root)
         if rank==root: self.xsol = np.vstack(self.xsol)
 
@@ -120,7 +197,10 @@ class DGFSMomWriterStd():
             return
 
         # compute the moments
-        self._compute_moments_1D(coeff)
+        if self.cfg.dim==3:
+          self._compute_moments_nD(coeff)
+        else:
+          self._compute_moments_1D(coeff)
 
         # Write out the file
         fname = self.basename.format(t=tcurr)
@@ -133,9 +213,20 @@ class DGFSMomWriterStd():
         if rank==root:
             sol = np.vstack(sol)
             np.savetxt(solnfname, np.hstack((self.xsol, sol)), 
-                header="t={0} \n x {1}".format(tcurr, self.fields), 
+                header="t={0} \n {1}".format(tcurr, self.fields), 
                 comments="#")
 
         # Compute the next output time
         self.tout_next = tcurr + self.dt_out
 
+        if 1==0 and self.cfg.dim==2:
+          x, y = self.xsol[:,0], self.xsol[:,1]
+          rho = sol[:,0]
+          import matplotlib.pyplot as plt
+          Nq, Ne, _ = self._bulksoln.shape
+          Nq, Ne = map(int, (Nq**0.5, Ne**0.5))
+          x, y, rho = map(lambda v: 
+                  v.reshape(Ne,Ne,Nq,Nq).swapaxes(1,2).reshape(Ne*Nq,Ne*Nq), 
+                  (x,y,rho))
+          plt.contourf(x,y,rho)
+          plt.savefig('plot_%s.pdf'%(fname,))

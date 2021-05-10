@@ -131,7 +131,7 @@ __global__ void equiSkDistCompute
                 momsSk5[0]*(cx[idx]-momsSk1[0]) 
               + momsSk6[0]*(cy[idx]-momsSk2[0]) 
               + momsSk7[0]*(cz[idx]-momsSk3[0])
-            )/(momsSk0[0]*momsSk4[0])
+            )/(momsSk0[0]*momsSk4[0]*momsSk4[0])
             *
             (
               (

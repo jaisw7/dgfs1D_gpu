@@ -53,6 +53,8 @@ class DGFSVelocityMeshStd(object):
         print("velocityMesh: (%s %s)"%(-self._L,self._L))
         print("n0, u0, t0: (%s %s %s)"%(self._n0, self._u0, self._H0/self._u0))
 
+        self._dev = _dev
+
         # define the weight of the velocity mesh
         self._cw = (2.0*self._L/self._Nv)**3
         c0 = np.linspace(-self._L+self._L/self._Nv, 
@@ -105,6 +107,7 @@ class DGFSVelocityMeshStd(object):
     def Nrho(self): return self._Nrho
     def M(self): return self._M
     def L(self): return self._L
+    def dev(self): return self._dev
     def vsize(self): return self._vsize
     def qz(self): return self._qz
     def qw(self): return self._qw

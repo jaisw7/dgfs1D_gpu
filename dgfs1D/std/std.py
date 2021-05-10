@@ -12,6 +12,7 @@ from timeit import default_timer as timer
 import mpi4py.rc
 mpi4py.rc.initialize = False
 
+from dgfs1D.mesh import Mesh
 from dgfs1D.initialize import initialize
 from dgfs1D.nputil import (subclass_where, get_grid_for_block, 
                             DottedTemplateLookup, ndrange)
@@ -38,7 +39,8 @@ def main():
     comm, rank, root = get_comm_rank_root()
 
     # read the inputs (from people)
-    cfg, mesh, args = initialize()
+    cfg, args = initialize()
+    mesh = Mesh(cfg)
 
     # define 1D mesh (construct a 1D world view)
     xmesh = mesh.xmesh
@@ -104,9 +106,11 @@ def main():
                 grid_NeNv, block, NeNv, arg0.ptr, NeNv, arg1.ptr, NeNv)
     
     # forward trans, backward, backward (at faces), derivative kernels
-    fwdTrans_Op, bwdTrans_Op, bwdTransFace_Op, deriv_Op, invMass_Op = map(
+    fwdTrans_Op, bwdTrans_Op, bwdTransFace_Op, deriv_Op, invMass_Op, \
+        computeCellAvg_Op, extractDrLin_Op = map(
         matOpGen, (basis.fwdTransOp, basis.bwdTransOp, 
-            basis.bwdTransFaceOp, basis.derivOp, basis.invMassOp)
+            basis.bwdTransFaceOp, basis.derivOp, basis.invMassOp, 
+            basis.computeCellAvgKern, basis.extractDrLinKern)
     )
 
     # U, V operator kernels
@@ -117,10 +121,15 @@ def main():
     dfltargs = dict(
         K=K, Ne=Ne, Nq=Nq, vsize=Nv, dtype=cfg.dtypename,
         mapL=mapL, mapR=mapR, offsetL=0, offsetR=len(mapR)-1,
-        invjac=invjac, gRD=basis.gRD, gLD=basis.gLD)
+        invjac=invjac, gRD=basis.gRD, gLD=basis.gLD, xsol=xsol)
     kernsrc = DottedTemplateLookup('dgfs1D.std.kernels', 
                                     dfltargs).get_template('std').render()
     kernmod = compiler.SourceModule(kernsrc)
+
+    dfltargs.update(nalph=5, Dr=basis.derivMat)     
+    kernlimssrc = DottedTemplateLookup('dgfs1D.astd.kernels', 
+                                    dfltargs).get_template('limiters').render()
+    kernlimsmod = compiler.SourceModule(kernlimssrc)
 
     # prepare operators for execution (see std.mako for description)
     (extLeft_Op, extRight_Op, transferBC_L_Op, transferBC_R_Op, 
@@ -182,6 +191,12 @@ def main():
     totalFlux = get_kernel(kernmod, "totalFlux", 'PPPP')
     totalFlux_Op = lambda d_ux, d_jL, d_jR: totalFlux.prepared_call(
             grid_Nv, block, d_ux.ptr, vm.d_cvx().ptr, d_jL.ptr, d_jR.ptr)
+
+    # linear limiter
+    limitLin = get_kernel(kernlimsmod, "limitLin", 'PPPP')
+    limitLin_Op = lambda d_u, d_ulx, d_uavg, d_ulim: \
+        limitLin.prepared_call(grid_Nv, block, d_u.ptr, d_ulx.ptr, 
+            d_uavg.ptr, d_ulim.ptr)
 
     # allocations on gpu
     d_usol = gpuarray.empty(NqNeNv, dtype=cfg.dtype)
@@ -350,10 +365,26 @@ def main():
         #bwdTrans_Op(d_ucoeff_out, d_usol)
         #fwdTrans_Op(d_usol, d_ucoeff_out)
 
+    d_uavg, d_ulx = map(gpuarray.empty_like, [d_ucoeff]*2)
+    def limit(d_ucoeff_in, d_ucoeff_out):
+        assert comm.size == 1, "Not implemented"
+        #assert basis.basis_kind == 'nodal-gll', "Not implemented"
+
+        # Extract the cell average
+        computeCellAvg_Op(d_ucoeff_in, d_uavg)
+
+        # extract gradient of the linear polynomial
+        extractDrLin_Op(d_ucoeff_in, d_ulx)
+        mulbyinvjac_Op(d_ulx)
+
+        # limit functions in all cells
+        limitLin_Op(d_ucoeff_in, d_ulx, d_uavg, d_ucoeff_out)
+
     # define a time-integrator
     odestype = cfg.lookup('time-integrator', 'scheme')
     odescls = subclass_where(DGFSIntegratorStd, intg_kind=odestype)
     odes = odescls(rhs, (K, Ne, Nv), cfg.dtype)
+    limitOn = cfg.lookupordefault('time-integrator', 'limiter', 0)
 
     # Finally start everything
     time = ti  # initialize time in case of restart
@@ -366,6 +397,7 @@ def main():
 
         # March in time 
         odes.integrate(time, dt, d_ucoeff)
+        if limitOn: limit(d_ucoeff, d_ucoeff)
 
         # increment time
         time += dt 
@@ -384,8 +416,9 @@ def main():
     # print elasped time
     end = timer()
     elapsed = np.array([end - start])
-    if rank==root:
-        comm.Allreduce(get_mpi('in_place'), elapsed, op=get_mpi('sum'))
+    if rank != root: comm.Reduce(elapsed, None, op=get_mpi('sum'), root=root)
+    else:
+        comm.Reduce(get_mpi('in_place'), elapsed, op=get_mpi('sum'), root=root)
         avgtime = elapsed[0]/comm.size
         print("Nsteps", nacptsteps, ", elapsed time", avgtime, "s")
 
