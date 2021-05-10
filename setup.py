@@ -32,7 +32,19 @@ modules = [
     'dgfs1D.bi',
     'dgfs1D.bi.kernels',
     'dgfs1D.bi.kernels.bcs',
-    'dgfs1D.bi.kernels.scattering'
+    'dgfs1D.bi.kernels.scattering',
+
+    'dgfs1D.astd',
+    'dgfs1D.astd.kernels',
+    'dgfs1D.astd.kernels.scattering',
+
+    'dgfs1D.porous',
+    'dgfs1D.porous.kernels',
+    'dgfs1D.porous.kernels.wallop',
+
+    'dgfs3D.astd',
+    'dgfs3D.astd.kernels',
+    'dgfs3D.astd.kernels.bcs',
 ]
 
 # Data
@@ -47,7 +59,15 @@ package_data = {
 
     'dgfs1D.bi.kernels': ['*.mako'],
     'dgfs1D.bi.kernels.bcs': ['*.mako'],
-    'dgfs1D.bi.kernels.scattering': ['*.mako']
+    'dgfs1D.bi.kernels.scattering': ['*.mako'],
+
+    'dgfs1D.astd.kernels': ['*.mako'],
+    'dgfs1D.astd.kernels.scattering': ['*.mako'],
+
+    'dgfs3D.astd.kernels': ['*.mako'],
+    'dgfs3D.astd.kernels.bcs': ['*.mako'],
+    'dgfs3D.astd.kernels.initconds': ['*.mako'],
+
 }
 
 # Hard dependencies
@@ -70,7 +90,21 @@ extras_require = {
 # Scripts
 console_scripts = [
     'dgfsStd1D = dgfs1D.std.std:__main__',
-    'dgfsBi1D = dgfs1D.bi.bi:__main__'
+    'dgfsBi1D = dgfs1D.bi.bi:__main__',
+    'dgfsAstd1D = dgfs1D.astd.astd:__main__',
+    'dgfsABstd1D = dgfs1D.astd.abstd:__main__',
+    #'dgfsABEstd1D = dgfs1D.astd.abstde:__main__',
+    #'dgfsABE2std1D = dgfs1D.astd.abstde2:__main__',
+    #'dgfsPorous1D = dgfs1D.porous.porous:__main__',
+    #'dgfsPorous21D = dgfs1D.porous.porous2:__main__',
+    #'adgfsStd1D = dgfs1D.std.astd2:__main__',
+    #'dgfsABE2std3D = dgfs3D.astd.abstde2:__main__',
+    #'dgfsAstd1D_ = dgfs1D.astd.astd_:__main__',
+    #'dgfsABstd1D_ = dgfs1D.astd.abstd_:__main__',
+    #'dgfsAstd1D_2 = dgfs1D.astd.astd_2:__main__',
+    #'dgfsABstd1D_2 = dgfs1D.astd.abstd_2:__main__',
+    #'dgfsAstd1D_3 = dgfs1D.astd.astd_3:__main__',
+    #'dgfsABstd1D_3 = dgfs1D.astd.abstd_3:__main__',
 ]
 
 # Info

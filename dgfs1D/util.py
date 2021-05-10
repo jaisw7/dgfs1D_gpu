@@ -40,6 +40,12 @@ def get_kernel_op(module, names, pointers):
         ), zip(names, pointers)
     )
 
+from functools import reduce
+def ndkron(*v): 
+    return reduce(np.kron, v)
+
+def ndgrid(*v):
+    return list(reversed(np.meshgrid(*v, indexing='ij')))
 
 def check(truth_value, *args):
     if not truth_value: raise ValueError(*args) 
