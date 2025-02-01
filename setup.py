@@ -38,13 +38,13 @@ modules = [
     'dgfs1D.astd.kernels',
     'dgfs1D.astd.kernels.scattering',
 
-    'dgfs1D.porous',
-    'dgfs1D.porous.kernels',
-    'dgfs1D.porous.kernels.wallop',
+    #'dgfs1D.porous',
+    #'dgfs1D.porous.kernels',
+    #'dgfs1D.porous.kernels.wallop',
 
-    'dgfs3D.astd',
-    'dgfs3D.astd.kernels',
-    'dgfs3D.astd.kernels.bcs',
+    #'dgfs3D.astd',
+    #'dgfs3D.astd.kernels',
+    #'dgfs3D.astd.kernels.bcs',
 ]
 
 # Data
