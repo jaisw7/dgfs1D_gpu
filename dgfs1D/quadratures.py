@@ -1,6 +1,6 @@
 import numpy as np
 from math import gamma, cos, pi
-from collections import Iterable
+from collections.abc import Iterable
 
 # The following modules are based on the "PyFR" implementation 
 # (See licences/LICENSE_PyFR)
