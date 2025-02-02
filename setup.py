@@ -7,8 +7,8 @@ import sys
 
 
 # Python version
-if sys.version_info[:2] < (3, 3):
-    print('DGFS requires Python 3.3 or newer')
+if sys.version_info[:2] < (3, 10):
+    print('DGFS requires Python 3.10 or newer')
     sys.exit(-1)
 
 # DGFS version
@@ -64,9 +64,9 @@ package_data = {
     'dgfs1D.astd.kernels': ['*.mako'],
     'dgfs1D.astd.kernels.scattering': ['*.mako'],
 
-    'dgfs3D.astd.kernels': ['*.mako'],
-    'dgfs3D.astd.kernels.bcs': ['*.mako'],
-    'dgfs3D.astd.kernels.initconds': ['*.mako'],
+    #'dgfs3D.astd.kernels': ['*.mako'],
+    #'dgfs3D.astd.kernels.bcs': ['*.mako'],
+    #'dgfs3D.astd.kernels.initconds': ['*.mako'],
 
 }
 
@@ -84,7 +84,7 @@ install_requires = [
 
 # Soft dependencies
 extras_require = {
-    
+
 }
 
 # Scripts
@@ -111,11 +111,11 @@ console_scripts = [
 classifiers = [
     'License :: GNU GPL v2',
     'Programming Language :: Python',
-    'Programming Language :: Python :: 3.3',
+    'Programming Language :: Python :: 3.10',
     'Topic :: Scientific/Engineering'
 ]
 
-long_description = '''dgfs1D is an open-source minimalistic implementation of 
+long_description = '''dgfs1D is an open-source minimalistic implementation of
 Discontinuous Galerkin Fast Spectral method in one dimension'''
 
 setup(name='dgfs1D',
