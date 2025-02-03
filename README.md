@@ -48,8 +48,8 @@ The overall DGFS method is simple from mathematical and implementation perspecti
       * oscCouette (1D oscillatory couette flow: VHS model)
       * fourier (1D fourier heat transfer: Maxwell model)
       * normalshock (1D normal shock: HS model)
-  * astd (single species)
-      * couette (1D couette flow: VHS model)
+  * astd (single species: Boltzmann equation penalized with Shakov)
+      * fc (1D fourier-couette flow: VHS model)
       * sod (1D sod-shock tube: VHS model)
       * acc (1D accuracy: VHS model)
 > For most of these cases, the [DSMC/SPARTA](https://sparta.sandia.gov/) simulation script have been made available in the corresponding folders.

@@ -42,9 +42,9 @@ modules = [
     #'dgfs1D.porous.kernels',
     #'dgfs1D.porous.kernels.wallop',
 
-    #'dgfs3D.astd',
-    #'dgfs3D.astd.kernels',
-    #'dgfs3D.astd.kernels.bcs',
+    'dgfs3D.astd',
+    'dgfs3D.astd.kernels',
+    'dgfs3D.astd.kernels.bcs',
 ]
 
 # Data
@@ -64,9 +64,9 @@ package_data = {
     'dgfs1D.astd.kernels': ['*.mako'],
     'dgfs1D.astd.kernels.scattering': ['*.mako'],
 
-    #'dgfs3D.astd.kernels': ['*.mako'],
-    #'dgfs3D.astd.kernels.bcs': ['*.mako'],
-    #'dgfs3D.astd.kernels.initconds': ['*.mako'],
+    'dgfs3D.astd.kernels': ['*.mako'],
+    'dgfs3D.astd.kernels.bcs': ['*.mako'],
+    'dgfs3D.astd.kernels.initconds': ['*.mako'],
 
 }
 

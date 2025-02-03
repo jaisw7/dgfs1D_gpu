@@ -135,7 +135,7 @@ class ModalOrthonormalLegendre(Basis):
 
         # number of quadrature points inside each element
         self._Nq = self.cfg.lookupordefault(basissect, 'Nq', 
-            np.int(np.ceil(1.5*self._K)))
+            int(np.ceil(1.5*self._K)))
 
         # define the orthonormal basis
         # the Gauss-Radau quadrature on standard interval
@@ -438,7 +438,7 @@ class ModalModifiedKarniadakis(Basis):
 
         # number of quadrature points inside each element
         self._Nq = self.cfg.lookupordefault(basissect, 'Nq', 
-            np.int(np.ceil(1.5*self._K)))
+            int(np.ceil(1.5*self._K)))
 
         # define the orthonormal basis
         # the Gauss quadrature on standard interval

@@ -84,8 +84,7 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
         self._omega = omega
 
         print("Kn:", 1.0/invKn)
-        self._prefactor = 1
-        #print("prefactor:", self._prefactor)
+        print("prefactor:", self._prefactor)
 
         # Added for penalizing collision operator
         Pr = self.cfg.lookupordefault('scattering-model', 'Pr', 2./3.)

@@ -1,21 +1,14 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
-from math import gamma, isnan, ceil
+from math import gamma
 
 # need to fix this (to make things backend independent)
 from pycuda import compiler, gpuarray
 from dgfs1D.nputil import DottedTemplateLookup
-from dgfs1D.cufft import (cufftPlan3d, cufftPlanMany, 
-                            cufftExecD2Z, cufftExecZ2Z, cufftExecC2C,
-                            CUFFT_D2Z, CUFFT_Z2Z, CUFFT_C2C, 
-                            CUFFT_FORWARD, CUFFT_INVERSE
-                        )
 import pycuda.driver as cuda
 from dgfs1D.nputil import get_grid_for_block
 from dgfs1D.util import get_kernel
 from dgfs1D.cublas import CUDACUBLASKernels
-from dgfs1D.cusolver import CUDACUSOLVERKernels
-from dgfs1D.std.scattering import DGFSBGKDirectGLLScatteringModelStd
 
 class DGFSScatteringModelAstd(object, metaclass=ABCMeta):
     def __init__(self, cfg, velocitymesh, **kwargs):
@@ -23,7 +16,7 @@ class DGFSScatteringModelAstd(object, metaclass=ABCMeta):
         self.vm = velocitymesh
         self.block = (256, 1, 1)
 
-        # a utility function for downcasting to raw ptr 
+        # a utility function for downcasting to raw ptr
         self.ptr = lambda vs: [v.ptr if (hasattr(v, 'ptr')) else v for v in vs]
 
         # read model parameters
@@ -44,7 +37,7 @@ class DGFSScatteringModelAstd(object, metaclass=ABCMeta):
 
 """
 BGK "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
@@ -81,8 +74,8 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
 
         # compute mat
         mat = np.vstack(
-            (np.ones(vm.vsize()), 
-                vm.cv(), 
+            (np.ones(vm.vsize()),
+                vm.cv(),
                 np.einsum('ij,ij->j', vm.cv(), vm.cv())
             )
         )*vm.cw() # 5 x Nv
@@ -100,7 +93,7 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         nbdf = [1, 2, 3, 4, 5, 6]; nars = [1, 2, 3, 4]
 
         # extract the template
-        dfltargs = dict(vsize=self.vm.vsize(), 
+        dfltargs = dict(vsize=self.vm.vsize(),
             nalph=self.nalph, omega=self._omega, Pr=self._Pr,
             dtype=self.cfg.dtypename, nbdf=nbdf, nars=nars)
         src = DottedTemplateLookup('dgfs1D.astd.kernels.scattering', dfltargs
@@ -121,15 +114,15 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
 
         # update the moment
         self.updateMomKernsBDF = tuple(map(
-            lambda q: get_kernel(module, "updateMom{0}_BDF".format(q), 
+            lambda q: get_kernel(module, "updateMom{0}_BDF".format(q),
                 dtn+'i'+dtn+(dtn+'P')*(2*q+1)+dtn), nbdf
         ))
         self.updateMomKernsARS = tuple(map(
-            lambda q: get_kernel(module, "updateMom{0}_ARS".format(q), 
+            lambda q: get_kernel(module, "updateMom{0}_ARS".format(q),
                 dtn+'i'+dtn+dtn*(2*q)+'P'*(2*q+1)), nars
         ))
         self.updateMomKernsLM = tuple(map(
-            lambda q: get_kernel(module, "updateMom{0}_LM".format(q), 
+            lambda q: get_kernel(module, "updateMom{0}_LM".format(q),
                 dtn+'i'+dtn+dtn*(3*q+1)+'P'*(3*q+1)), nbdf
         ))
 
@@ -175,8 +168,8 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         vm = self.vm
         grid = get_grid_for_block(self.block, lda*vm.vsize())
         self.cmaxwellianKern.prepared_call(
-                    grid, self.block, lda*vm.vsize(), 
-                    vm.d_cvx().ptr, vm.d_cvy().ptr, vm.d_cvz().ptr, 
+                    grid, self.block, lda*vm.vsize(),
+                    vm.d_cvx().ptr, vm.d_cvy().ptr, vm.d_cvz().ptr,
                     M.ptr, U.ptr)
 
     def collide(self, t, U, M, f, Q):
@@ -186,7 +179,7 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         vm = self.vm
         grid = get_grid_for_block(self.block, lda*vm.vsize())
         self.collideKern.prepared_call(
-                    grid, self.block, self._prefactor, np.int(lda*vm.vsize()), 
+                    grid, self.block, self._prefactor, int(lda*vm.vsize()),
                     M.ptr, U.ptr, f.ptr, Q.ptr)
 
     def collideNu(self, t, U, M, f, Q):
@@ -196,7 +189,7 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         vm = self.vm
         grid = get_grid_for_block(self.block, lda*vm.vsize())
         self.collideNuKern.prepared_call(
-                    grid, self.block, self._prefactor, np.int(lda*vm.vsize()), 
+                    grid, self.block, self._prefactor, int(lda*vm.vsize()),
                     M.ptr, U.ptr, f.ptr, Q.ptr)
 
     def updateMomentBDF(self, dt, *args):
@@ -204,9 +197,9 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 3)//4
         assert len(args)==4*q+3, "Inconsistency in number of parameters"
 
-        lda = np.int(args[1].shape[0])//self.nalph
+        lda = int(args[1].shape[0])//self.nalph
         grid = get_grid_for_block(self.block, lda)
-        self.updateMomKernsBDF[q-1].prepared_call(grid, self.block, 
+        self.updateMomKernsBDF[q-1].prepared_call(grid, self.block,
                 self._prefactor, lda, dt, *self.ptr(args))
 
 
@@ -215,9 +208,9 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 5)//4
         assert len(args)==4*q+5, "Inconsistency in number of parameters"
 
-        lda = np.int(args[1].shape[0])
+        lda = int(args[1].shape[0])
         grid = get_grid_for_block(self.block, lda)
-        self.updateDistKernsBDF[q-1].prepared_call(grid, self.block, 
+        self.updateDistKernsBDF[q-1].prepared_call(grid, self.block,
             self._prefactor, lda, dt, *self.ptr(args))
 
 
@@ -226,9 +219,9 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 5)//4
         assert len(args)==4*q+5, "Inconsistency in number of parameters"
 
-        lda = np.int(args[1].shape[0])
+        lda = int(args[1].shape[0])
         grid = get_grid_for_block(self.block, lda)
-        self.updateDistNuKernsBDF[q-1].prepared_call(grid, self.block, 
+        self.updateDistNuKernsBDF[q-1].prepared_call(grid, self.block,
             self._prefactor, lda, dt, *self.ptr(args))
 
 
@@ -237,9 +230,9 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 1)//4
         assert len(args)==4*q+1, "Inconsistency in number of parameters"
 
-        lda = np.int(args[-1].shape[0])//self.nalph
+        lda = int(args[-1].shape[0])//self.nalph
         grid = get_grid_for_block(self.block, lda)
-        self.updateMomKernsARS[q-1].prepared_call(grid, self.block, 
+        self.updateMomKernsARS[q-1].prepared_call(grid, self.block,
                 self._prefactor, lda, dt, *self.ptr(args))
 
 
@@ -248,9 +241,9 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 2)//6
         assert len(args)==6*q+2, "Inconsistency in number of parameters"
 
-        lda = np.int(args[-1].shape[0])
+        lda = int(args[-1].shape[0])
         grid = get_grid_for_block(self.block, lda)
-        self.updateDistKernsARS[q-1].prepared_call(grid, self.block, 
+        self.updateDistKernsARS[q-1].prepared_call(grid, self.block,
             self._prefactor, lda, dt, *self.ptr(args))
 
 
@@ -259,33 +252,35 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         q = (len(args) - 3)//6
         assert len(args)==6*q+3, "Inconsistency in number of parameters"
 
-        lda = np.int(args[-1].shape[0])
+        lda = int(args[-1].shape[0])
         grid = get_grid_for_block(self.block, lda)
-        self.updateDistWeightKernsSSPL[q-1].prepared_call(grid, self.block, 
+        self.updateDistWeightKernsSSPL[q-1].prepared_call(grid, self.block,
             self._prefactor, lda, dt, *self.ptr(args))
 
 
     def updateMomentLM(self, dt, A, B, C, LU, LM, U, nstages):
-        lda = np.int(U[0].shape[0])//self.nalph
+        lda = int(U[0].shape[0])//self.nalph
         grid = get_grid_for_block(self.block, lda)
         coeffs = A + B + C
         args = LU + LM + U
-        self.updateMomKernsLM[nstages-1].prepared_call(grid, self.block, 
+        #print(len(coeffs)+len(args)); exit()
+        self.updateMomKernsLM[nstages-1].prepared_call(grid, self.block,
                 self._prefactor, lda, dt, *coeffs, *self.ptr(args))
 
 
     def updateDistLM(self, dt, A, B, C, L, M, F, fnew, U, nstages):
-        lda = np.int(F[0].shape[0])
+        lda = int(F[0].shape[0])
         grid = get_grid_for_block(self.block, lda)
         coeffs = A + B + C
         args = L + M + F + [fnew] + U
-        self.updateDistKernsLM[nstages-1].prepared_call(grid, self.block, 
+        #print(len(coeffs)+len(args)); exit()
+        self.updateDistKernsLM[nstages-1].prepared_call(grid, self.block,
             self._prefactor, lda, dt, *coeffs, *self.ptr(args))
 
 
 """
 ESBGK "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSESBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAstd):
@@ -318,7 +313,7 @@ class DGFSESBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAstd)
             cv, # momentum
             np.einsum('ij,ij->j', vm.cv(), vm.cv()), # energy
             cv[0,:]*cv[0,:], cv[1,:]*cv[1,:], cv[2,:]*cv[2,:], # normal stress
-            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:] # off-diag 
+            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:] # off-diag
         ))*vm.cw() # 11 x Nv
         self.mat = gpuarray.to_gpu((mat).ravel()) # Nv x 11 flatenned
         self.blas = CUDACUBLASKernels() # blas kernels for computing moments
@@ -345,15 +340,15 @@ class DGFSESBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAstd)
 
         grid = get_grid_for_block(self.block, lda*vm.vsize())
         self.cmaxwellianKern.prepared_call(
-                    grid, self.block, lda*vm.vsize(), 
-                    vm.d_cvx().ptr, vm.d_cvy().ptr, vm.d_cvz().ptr, 
+                    grid, self.block, lda*vm.vsize(),
+                    vm.d_cvx().ptr, vm.d_cvy().ptr, vm.d_cvz().ptr,
                     M.ptr, self.normU.ptr)
 
 
 
 """
 Shakov "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSShakovDirectGLLScatteringModelAstd(DGFSESBGKDirectGLLScatteringModelAstd):
@@ -386,7 +381,7 @@ class DGFSShakovDirectGLLScatteringModelAstd(DGFSESBGKDirectGLLScatteringModelAs
             cv, # momentum
             np.einsum('ij,ij->j', vm.cv(), vm.cv()), # energy
             cv[0,:]*cv[0,:], cv[1,:]*cv[1,:], cv[2,:]*cv[2,:], # normal stress
-            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:], # off-diag 
+            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:], # off-diag
             np.einsum('ij,ij->j', cv, cv)*cv[0,:], # x-heat-flux
             np.einsum('ij,ij->j', cv, cv)*cv[1,:], # y-heat-flux
             np.einsum('ij,ij->j', cv, cv)*cv[2,:] # z-heat-flux
@@ -451,13 +446,11 @@ class DGFSBoltzBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAs
         invKn = self.vm.H0()*np.sqrt(2.0)*np.pi*self.vm.n0()*dRef*dRef*pow(
             Tref/self.vm.T0(), omega-0.5);
 
-        self._prefactor = invKn*alpha/(
+        self._prefactor = 100*invKn*alpha/(
             pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
         self._omega = omega
         self._Pr = 1
         #super().load_parameters()
-        #self._prefactor = 1
-        
         print("penalized-prefactor:", self._prefactor)
 
 
@@ -491,26 +484,6 @@ class DGFSBoltzESBGKDirectGLLScatteringModelAstd(DGFSESBGKDirectGLLScatteringMod
         self._eps = kwargs.get('eps')
         super().__init__(cfg, velocitymesh, **kwargs)
 
-    def load_parameters(self):
-        alpha = 1.0
-        omega = self.cfg.lookupfloat('scattering-model', 'omega');
-        self._gamma = 2.0*(1-omega)
-
-        dRef = self.cfg.lookupfloat('scattering-model', 'dRef');
-        Tref = self.cfg.lookupfloat('scattering-model', 'Tref');
-
-        invKn = self.vm.H0()*np.sqrt(2.0)*np.pi*self.vm.n0()*dRef*dRef*pow(
-            Tref/self.vm.T0(), omega-0.5);
-
-        self._prefactor = 100*invKn*alpha/(
-            pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
-        self._omega = omega
-        self._Pr = 1
-        #super().load_parameters()
-        #self._prefactor = 1
-        
-        print("penalized-prefactor:", self._prefactor)
-
     def _load_parameters(self):
         # now the penalization operator
         Pr = 2./3.
@@ -539,26 +512,6 @@ class DGFSBoltzShakovDirectGLLScatteringModelAstd(DGFSShakovDirectGLLScatteringM
     def __init__(self, cfg, velocitymesh, **kwargs):
         self._eps = kwargs.get('eps')
         super().__init__(cfg, velocitymesh, **kwargs)
-
-    def load_parameters(self):
-        alpha = 1.0
-        omega = self.cfg.lookupfloat('scattering-model', 'omega');
-        self._gamma = 2.0*(1-omega)
-
-        dRef = self.cfg.lookupfloat('scattering-model', 'dRef');
-        Tref = self.cfg.lookupfloat('scattering-model', 'Tref');
-
-        invKn = self.vm.H0()*np.sqrt(2.0)*np.pi*self.vm.n0()*dRef*dRef*pow(
-            Tref/self.vm.T0(), omega-0.5);
-
-        self._prefactor = invKn*alpha/(
-            pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
-        self._omega = omega
-        self._Pr = 1
-        #super().load_parameters()
-        #self._prefactor = 1
-        
-        print("penalized-prefactor:", self._prefactor)
 
     def _load_parameters(self):
         # now the penalization operator

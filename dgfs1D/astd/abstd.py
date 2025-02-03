@@ -92,7 +92,7 @@ def main(Ne=None):
 
     # initial time, time step, final time
     ti, dt, tf = cfg.lookupfloats('time-integrator', ('tstart', 'dt', 'tend'))
-    nsteps = np.int(np.ceil((tf - ti)/dt))
+    nsteps = int(np.ceil((tf - ti)/dt))
     dt = (tf - ti)/nsteps
 
     # Compute the location of the solution points 
