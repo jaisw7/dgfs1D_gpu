@@ -36,8 +36,8 @@ class BaseTabulatedSphericalQuadRule(object):
             pts = [p[0] for p in pts]
 
         # Cast
-        self.pts = np.array(pts, dtype=np.float)
-        self.wts = np.array(wts, dtype=np.float)
+        self.pts = np.array(pts, dtype=np.float64)
+        self.wts = np.array(wts, dtype=np.float64)
 
 
 class BaseStoredSphericalQuadRule(BaseTabulatedSphericalQuadRule):

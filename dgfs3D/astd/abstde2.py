@@ -177,7 +177,7 @@ def main():
     #pex(mapping)
     #G = nx.relabel_nodes(G, mapping)
 
-    mapL, mapR = map(lambda v: np.arange(NqfT*NeT,dtype=np.int).reshape(Nfaces,Nqf,NeT), range(2))
+    mapL, mapR = map(lambda v: np.arange(NqfT*NeT,dtype=int).reshape(Nfaces,Nqf,NeT), range(2))
     one = np.ones((1,NqfT))
     for e0, e1 in G.edges():
         #xM, xP = xFace[:,:,e0], xFace[:,:,e1]
@@ -230,8 +230,8 @@ def main():
     #pex(*[(nFace[0,i],nFace[1,i]) for i in range(NqfT*NeT)])
   
     # define boundary maps
-    bmapL = [np.zeros((Nqf,Nb[b],), dtype=np.int) for b in range(Nfaces)]
-    bmapR = [np.zeros((Nqf,Nb[b],), dtype=np.int) for b in range(Nfaces)]
+    bmapL = [np.zeros((Nqf,Nb[b],), dtype=int) for b in range(Nfaces)]
+    bmapR = [np.zeros((Nqf,Nb[b],), dtype=int) for b in range(Nfaces)]
     for i in range(dim):
         for dir, b in enumerate([2*i, 2*i+1]):
             norm = -1 if dir==0 else 1
