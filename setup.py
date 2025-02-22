@@ -93,6 +93,7 @@ console_scripts = [
     'dgfsBi1D = dgfs1D.bi.bi:__main__',
     'dgfsAstd1D = dgfs1D.astd.astd:__main__',
     'dgfsABstd1D = dgfs1D.astd.abstd:__main__',
+    'dgfsABUstd1D = dgfs1D.astd.abstdu:__main__',
     #'dgfsABEstd1D = dgfs1D.astd.abstde:__main__',
     #'dgfsABE2std1D = dgfs1D.astd.abstde2:__main__',
     #'dgfsPorous1D = dgfs1D.porous.porous:__main__',

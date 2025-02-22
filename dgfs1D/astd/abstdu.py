@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Entropy-Stable asymptotic DGFS in one dimension
+Upwind summation-by-part asymptotic DGFS in one dimension
 """
 
 import os
@@ -113,16 +113,12 @@ def main():
 
     # forward trans, backward, backward (at faces), derivative kernels
     fwdTrans_Op, bwdTrans_Op, bwdTransFace_Op, deriv_Op, invMass_Op, \
-        computeCellAvg_Op, extractDrLin_Op = map(
+        computeCellAvg_Op, extractDrLin_Op, Dp_Op, Dm_Op = map(
         matOpGen, (basis.fwdTransOp, basis.bwdTransOp,
             basis.bwdTransFaceOp, basis.derivOp, basis.invMassOp,
-            basis.computeCellAvgKern, basis.extractDrLinKern)
+            basis.computeCellAvgKern, basis.extractDrLinKern,
+            basis.DpKern, basis.DmKern)
     )
-
-    # U, V operator kernels
-    tuple(map(matOpGen, basis.uTransOps))
-    tuple(map(matOpGen, basis.vTransOps))
-
 
     # prepare the kernel for extracting face/interface values
     dfltargs = dict(
@@ -137,6 +133,11 @@ def main():
     kernlimssrc = DottedTemplateLookup('dgfs1D.astd.kernels',
                                     dfltargs).get_template('limiters').render()
     kernlimsmod = compiler.SourceModule(kernlimssrc)
+
+    dfltargs.update()
+    kernupwsrc = DottedTemplateLookup('dgfs1D.astd.kernels',
+                                    dfltargs).get_template('upwind').render()
+    kernupwsmod = compiler.SourceModule(kernupwsrc)
 
     # prepare operators for execution (see std.mako for description)
     (extLeft_Op, extRight_Op, transferBC_L_Op, transferBC_R_Op,
@@ -172,8 +173,8 @@ def main():
     #    assert(bcl_type==bcr_type);
 
     # flux kernel
-    flux = get_kernel(kernmod, "flux", 'PPPPP')
-    flux_Op = lambda d_uL, d_uR, d_jL, d_jR: flux.prepared_call(
+    uflux = get_kernel(kernupwsmod, "uflux", 'PPPPP')
+    uflux_Op = lambda d_uL, d_uR, d_jL, d_jR: uflux.prepared_call(
             grid_Nv, block,
             d_uL.ptr, d_uR.ptr, vm.d_cvx().ptr, d_jL.ptr, d_jR.ptr)
 
@@ -198,9 +199,9 @@ def main():
             grid_Nv, block, d_ux.ptr, vm.d_cvx().ptr, d_jL.ptr, d_jR.ptr)
 
     # derivative op
-    eDeriv = get_kernel(kernlimsmod, "eDeriv", 'PPP')
-    eDeriv_Op = lambda d_u, d_ux: eDeriv.prepared_call(
-            grid_Nv, block, vm.d_cvx().ptr, d_u.ptr, d_ux.ptr)
+    splitFlux_Op = get_kernel(kernupwsmod, "splitFlux", 'PPPP')
+    splitFlux_Op = lambda d_u, d_f, d_g: splitFlux_Op.prepared_call(
+            grid_KNeNv, block, vm.d_cvx().ptr, d_u.ptr, d_uf.ptr, d_ug.ptr)
 
     # linear limiter
     limitLin = get_kernel(kernlimsmod, "limitLin", 'PPPP')
@@ -281,7 +282,6 @@ def main():
 
     # initialize
     axnpbyCoeff_Op(0., d_ucoeffPrev, 1., d_ucoeff)
-    basis.sigModes
 
     # define the neighbours
     from mpi4py import MPI
@@ -352,19 +352,24 @@ def main():
         insertBC_R_Op(d_bcT, d_uR)         # insert info to global face-flux
 
         # Step:2 Compute the flux and jumps (all operations in single call)
-        #fL, fR = cvx*uL, cvx*uR
-        #fupw = 0.5*(fL + fR) + 0.5*np.abs(cvx)*(uL - uR)
-        #jL = fupw - fL  # Compute the jump at left boundary
-        #jR = fupw - fR  # Compute the jump at right boundary
-        flux_Op(d_uL, d_uR, d_jL, d_jR)
+        # cvP = cvx_pos (i.e., positive cvx)
+        # cvM = cvx_neg (i.e., negative cvx)
+        # diff = uR - uL
+        # jL, jR = -cvP * diff, cvM * diff
+        uflux_Op(d_uL, d_uR, d_jL, d_jR)
 
-        # Step:3 evaluate the derivative
-        # ux = -cvx*np.einsum("ml,em->el", Sx, ucoeff)
-        #deriv_Op(d_ucoeff_in, d_ux)
-        #mulbyadv_Op(d_ux)
+        # Step:4 Compute flux-splitted values
+        # sigma = np.zeros((Nq,))
+        # sigma[-1] = -1
+        # S = mul(V, np.diag(sigma), V.T)
+        # Dp = Dr + 0.5 * mul(S, invP)
+        # Dm = Dr - 0.5 * mul(S, invP)
+        # fx = np.matmul(fm(usol), Dp) + np.matmul(fp(usol), Dm)
+        splitFlux_Op(d_ucoeff_in, d_f, d_g)
+        Dm_Op(d_f, d_ux)
+        Dp_Op(d_g, d_f)
+        axnpbyCoeff_Op(1., d_ux, 1., d_f)
 
-        axnpbyCoeff_Op(0., d_ux, 0., d_ux)
-        eDeriv_Op(d_ucoeff_in, d_ux)
         # Compute the continuous flux for each element in strong form
         totalFlux_Op(d_ux, d_jL, d_jR)
 
