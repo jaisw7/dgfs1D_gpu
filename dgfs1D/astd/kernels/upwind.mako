@@ -14,29 +14,28 @@ __global__ void uflux(const scalar *uL, const scalar *uR, const scalar *cvx,
 
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx < ${vsize}) {
-    const scalar cvP = cvx > 0 ? cvx[idx] : 0;
-    const scalar cvM = cvx < 0 ? cvx[idx] : 0;
+    const scalar cvP = cvx[idx] > 0 ? cvx[idx] : 0;
+    const scalar cvM = cvx[idx] < 0 ? cvx[idx] : 0;
 
     % for t in range(len(mapL)):
         jL[${t*vsize} + idx] = (uR[${t*vsize}+idx] - uL[${t*vsize}+idx]);
 
     jR[${t * vsize} + idx] = jL[${t * vsize} + idx];
 
-    jL[${t * vsize} + idx] *= -cvP;
-    jR[${t * vsize} + idx] *= cvM;
+    jL[${t * vsize} + idx] *= cvM;
+    jR[${t * vsize} + idx] *= -cvP;
     % endfor
   }
 }
 
-__global__ void splitFlux(const scalar *cvx, const scalar *u, const scalar *f,
+__global__ void splitFlux(const scalar *cvx, const scalar *u, scalar *f,
                           scalar *g) {
   // Compute the upwind derivative in each element
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int id;
 
   if (idx < ${K * Ne * vsize}) {
     const scalar cv = cvx[idx % ${vsize}];
-    f[idx] *= cv > 0 ? cv * u[idx] : 0;
-    g[idx] *= cv < 0 ? cv * u[idx] : 0;
+    f[idx] = cv > 0 ? (cv * u[idx]) : 0;
+    g[idx] = cv < 0 ? (cv * u[idx]) : 0;
   }
 }

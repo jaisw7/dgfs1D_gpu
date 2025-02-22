@@ -199,9 +199,9 @@ def main():
             grid_Nv, block, d_ux.ptr, vm.d_cvx().ptr, d_jL.ptr, d_jR.ptr)
 
     # derivative op
-    splitFlux_Op = get_kernel(kernupwsmod, "splitFlux", 'PPPP')
-    splitFlux_Op = lambda d_u, d_f, d_g: splitFlux_Op.prepared_call(
-            grid_KNeNv, block, vm.d_cvx().ptr, d_u.ptr, d_uf.ptr, d_ug.ptr)
+    splitFlux = get_kernel(kernupwsmod, "splitFlux", 'PPPP')
+    splitFlux_Op = lambda d_u, d_f, d_g: splitFlux.prepared_call(
+            grid_KNeNv, block, vm.d_cvx().ptr, d_u.ptr, d_f.ptr, d_g.ptr)
 
     # linear limiter
     limitLin = get_kernel(kernlimsmod, "limitLin", 'PPPP')
@@ -369,6 +369,7 @@ def main():
         Dm_Op(d_f, d_ux)
         Dp_Op(d_g, d_f)
         axnpbyCoeff_Op(1., d_ux, 1., d_f)
+        axnpbyCoeff_Op(0., d_ux, -1., d_ux)
 
         # Compute the continuous flux for each element in strong form
         totalFlux_Op(d_ux, d_jL, d_jR)
