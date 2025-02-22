@@ -305,7 +305,7 @@ class NodalSemGLL(Basis):
         Vo, _ = np.linalg.qr(V)
         sigma = np.zeros((self._Nq,))
         sigma[-1] = -1
-        S = (V @ np.diag(sigma) @ V.T)
+        S = (Vo @ np.diag(sigma) @ Vo.T)
         invP = np.diag(1 / self._w)
         Dp = D + 0.5 * np.matmul(S, invP)
         Dm = D - 0.5 * np.matmul(S, invP)
