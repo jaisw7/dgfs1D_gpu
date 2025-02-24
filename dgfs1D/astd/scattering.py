@@ -446,7 +446,7 @@ class DGFSBoltzBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAs
         invKn = self.vm.H0()*np.sqrt(2.0)*np.pi*self.vm.n0()*dRef*dRef*pow(
             Tref/self.vm.T0(), omega-0.5);
 
-        self._prefactor = 100*invKn*alpha/(
+        self._prefactor = invKn*alpha/(
             pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
         self._omega = omega
         self._Pr = 1
