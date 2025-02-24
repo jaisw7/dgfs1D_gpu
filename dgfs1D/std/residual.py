@@ -26,6 +26,6 @@ class DGFSResidualStd():
             else:
                 comm.Reduce(get_mpi('in_place'), res, op=get_mpi('sum'),
                             root=root)
-                logger.info("residual at t = {}", tcurr, np.sqrt(res[0]/res[1]))
+                logger.info("residual at t = {} {}", tcurr, np.sqrt(res[0]/res[1]))
                 #print("residual at t = ", tcurr, np.sqrt(res[2]))
                 #print("residual at t = ", tcurr, np.linalg.norm(solcurr.get()))

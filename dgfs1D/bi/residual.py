@@ -28,4 +28,4 @@ class DGFSResidualBi():
                             root=root)
                 comm.Reduce(get_mpi('in_place'), res_den, op=get_mpi('sum'),
                             root=root)
-                logger.info("residual at t = {}", tcurr, np.sqrt(res_num/res_den))
+                logger.info("residual at t = {} {}", tcurr, np.sqrt(res_num/res_den))
