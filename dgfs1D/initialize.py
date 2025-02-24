@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
 from argparse import ArgumentParser, FileType
-import os
 from dgfs1D.dictionary import Dictionary
-import json
+from loguru import logger
 
 def initialize():
+    logger.add("dgfs_{time}.log")
     ap = ArgumentParser()
     sp = ap.add_subparsers(dest='cmd', help='sub-command help')
 
@@ -19,9 +19,9 @@ def initialize():
     # Restart command
     ap_restart = sp.add_parser('restart', help='restart --help')
     ap_restart.add_argument('inp', type=FileType('r'), help='input file')
-    ap_restart.add_argument('dist', nargs='+', action='append', 
+    ap_restart.add_argument('dist', nargs='+', action='append',
         type=FileType('r'), default=[], help='sorted list of distributions')
-    ap_restart.add_argument('-v', nargs=2, action='append', default=[], 
+    ap_restart.add_argument('-v', nargs=2, action='append', default=[],
         help='substitute variables. Example: -v mesh::Ne 4')
     ap_restart.set_defaults(process_restart=True)
 

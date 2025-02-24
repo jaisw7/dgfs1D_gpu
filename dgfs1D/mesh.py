@@ -1,6 +1,7 @@
 import numpy as np
-from dgfs1D.nputil import npeval, get_mpi, get_comm_rank_root
+from dgfs1D.nputil import npeval, get_comm_rank_root
 from dgfs1D.quadratures import zwglj
+from loguru import logger
 
 msect = 'mesh'
 
@@ -107,12 +108,12 @@ class Mesh(object):
         sidx, eidx = rank*perProcNe, (rank+1)*perProcNe+1
         xmesh = xmesh[sidx:eidx]
         self._Ne = perProcNe
-        print("Elements per proc", self._Ne)
+        logger.info("Elements per proc {}", self._Ne)
 
         # length of the domain
         self._xlo, self._xhi = np.min(xmesh), np.max(xmesh)
-        
-        # size of each element 
+
+        # size of each element
         h = np.diff(xmesh).reshape(-1,1)
         assert np.min(h)>1e-8, "Too small element size"
 
@@ -121,7 +122,7 @@ class Mesh(object):
 
         # the primitive mesh points
         self._xmesh = xmesh
-        
+
     @property
     def xlo(self): return self._xlo
 

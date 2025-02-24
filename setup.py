@@ -79,7 +79,8 @@ install_requires = [
     'numpy >= 1.8',
     'pytools >= 2016.2.1',
     'pycuda >= 2015.1',
-    'mpi4py >= 2.0'
+    'mpi4py >= 2.0',
+    'loguru>=0.7.3',
 ]
 
 # Soft dependencies

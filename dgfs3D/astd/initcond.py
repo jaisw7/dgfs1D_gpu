@@ -1,10 +1,9 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
-from math import gamma
-from dgfs1D.nputil import (npeval, subclass_where, get_grid_for_block, 
-                            DottedTemplateLookup, ndrange)
-from pycuda import compiler, gpuarray
-from dgfs1D.util import get_kernel, filter_tol
+from dgfs1D.nputil import (get_grid_for_block, DottedTemplateLookup)
+from pycuda import compiler
+from dgfs1D.util import get_kernel
+from loguru import logger
 
 class DGFSInitConditionStd(object, metaclass=ABCMeta):
     def __init__(self, cfg, velocitymesh, name, **kwargs):
@@ -13,13 +12,13 @@ class DGFSInitConditionStd(object, metaclass=ABCMeta):
         self._init_vals = None
 
         self.block = (256, 1, 1)
- 
+
         # read model parameters
         self.load_parameters(name, **kwargs)
 
         # perform any necessary computation
         self.perform_precomputation()
-        print('Finished initial condition precomputation for', name)
+        logger.info('Finished initial condition precomputation for', name)
 
     @abstractmethod
     def load_parameters(self, name, **kwargs):
@@ -68,7 +67,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
     def apply_init_val(self, d_f, Nq, Ne, xsol, **kwargs):
        #import re
        #self._rhoini, self._uxini, self._uyini, self._uzini, self._Tini = map(
-       #        lambda v: npeval(v, self._vars), 
+       #        lambda v: npeval(v, self._vars),
        #    (self._rhoini, self._uxini, self._uyini, self._uzini, self._Tini)
        #)
        #def repl(st):
@@ -80,16 +79,16 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
        #)
        from mako.template import Template
        self._rhoini, self._uxini, self._uyini, self._uzini, self._Tini = map(
-               lambda v: Template(v).render(**self._vars), 
+               lambda v: Template(v).render(**self._vars),
            (self._rhoini, self._uxini, self._uyini, self._uzini, self._Tini)
        )
 
        dfltargs = {}
-       dfltargs.update({'dtype':self.cfg.dtypename, 'NqT': Nq, 'rho': self._rhoini, 
-           'ux': self._uxini, 'uy': self._uyini, 'NeT': Ne, 'vsize': self.vm.vsize(), 
+       dfltargs.update({'dtype':self.cfg.dtypename, 'NqT': Nq, 'rho': self._rhoini,
+           'ux': self._uxini, 'uy': self._uyini, 'NeT': Ne, 'vsize': self.vm.vsize(),
            'uz': self._uzini, 'T': self._Tini, 'dim': self.cfg.dim})
        dfltargs.update(self._vars)
-       kernsrc = DottedTemplateLookup('dgfs3D.astd.kernels.initconds', 
+       kernsrc = DottedTemplateLookup('dgfs3D.astd.kernels.initconds',
                                     dfltargs).get_template(self.model).render()
        kernmod = compiler.SourceModule(kernsrc)
 
@@ -98,7 +97,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
        kern_Op = lambda *args: get_kernel(kernmod, "applyIC", 'iPPPPP').prepared_call(
               grid_NqNeNv, self.block, NqNeNv, *list(map(lambda c: c.ptr, args)) )
        kern_Op(d_f, self.vm.d_cvx(), self.vm.d_cvy(), self.vm.d_cvz(), xsol)
-       
+
        #x = xsol.get().reshape(Nq,Ne,self.cfg.dim)
        #x, y = x[:,:,0], x[:,:,1]
        #import matplotlib.pyplot as plt
@@ -106,7 +105,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
        #x, y = map(lambda v: v.reshape(Nq,Nq,Ne,Ne).swapaxes(1,2).reshape(Ne*Nq,Ne*Nq), (x,y,))
        #plt.contourf(x,y,0.0023*(1+np.sin(x)))
        #plt.savefig('plot.pdf')
-        
+
 
 
     def apply_init_vals(self, d_f, Nq, Ne, xsol, **kwargs):

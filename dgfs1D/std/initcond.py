@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
-from math import gamma
 from dgfs1D.nputil import npeval, ndrange
+from loguru import logger
 
 class DGFSInitConditionStd(object, metaclass=ABCMeta):
     def __init__(self, cfg, velocitymesh, name, **kwargs):
@@ -14,7 +14,7 @@ class DGFSInitConditionStd(object, metaclass=ABCMeta):
 
         # perform any necessary computation
         self.perform_precomputation()
-        print('Finished initial condition precomputation for', name)
+        logger.info('Finished initial condition precomputation for {}', name)
 
     @abstractmethod
     def load_parameters(self, name, **kwargs):
@@ -44,7 +44,7 @@ class DGFSMaxwellianInitConditionStd(DGFSInitConditionStd):
         self._rhoini = 1.
         if not wall:
             self._rhoini = self.cfg.lookupfloat(name, 'rho')/self.vm.rho0()
-        #self._rhoini = self.cfg.lookupordefault(name, 
+        #self._rhoini = self.cfg.lookupordefault(name,
         #                'rho', self.vm.rho0())/self.vm.rho0()
         self._Tini = self.cfg.lookupfloat(name, 'T')/self.vm.T0()
         uinix = self.cfg.lookupfloat(name, 'ux')/u0
@@ -59,7 +59,6 @@ class DGFSMaxwellianInitConditionStd(DGFSInitConditionStd):
         )
         # test the distribution support
         cv = self.vm.cv()
-        vsize = self.vm.vsize()
         cw = self.vm.cw()
         T0 = self.vm.T0()
         rho0 = self.vm.rho0()
@@ -92,12 +91,12 @@ class DGFSMaxwellianInitConditionStd(DGFSInitConditionStd):
         ele_sol[4] = np.sum(soln*cSqr, axis=0)*(2.0/3.0*mcw*mr)
         ele_sol[4] /= ele_sol[0]
 
-        print("bulk-property: input calculated")
-        print("mass-density:", self._rhoini*rho0, ele_sol[0]*rho0)
-        print("x-velocity:", self._uini[0,0]*u0, ele_sol[1]*u0)
-        print("y-velocity:", self._uini[1,0]*u0, ele_sol[2]*u0)
-        print("z-velocity:", self._uini[2,0]*u0, ele_sol[3]*u0)
-        print("temperature:", self._Tini*T0, ele_sol[4]*T0)
+        logger.info("bulk-property: input calculated")
+        logger.info("mass-density: {}", self._rhoini*rho0, ele_sol[0]*rho0)
+        logger.info("x-velocity: {}", self._uini[0,0]*u0, ele_sol[1]*u0)
+        logger.info("y-velocity: {}", self._uini[1,0]*u0, ele_sol[2]*u0)
+        logger.info("z-velocity: {}", self._uini[2,0]*u0, ele_sol[3]*u0)
+        logger.info("temperature: {}", self._Tini*T0, ele_sol[4]*T0)
 
         if( not(
             np.allclose(self._rhoini*rho0, ele_sol[0]*rho0, atol=1e-5)
@@ -131,7 +130,7 @@ class DGFSBKWInitConditionStd(DGFSInitConditionStd):
 
     def perform_precomputation(self):
         K = 1.0-np.exp(-self._t0/6.0)
-        dK = np.exp(-self._t0/6.0)/6.0
+        np.exp(-self._t0/6.0)/6.0
         cv = self.vm.cv()
         for l in range(self.vm.vsize()):
             cSqr = np.dot(cv[:,l], cv[:,l])
@@ -164,7 +163,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
         )
 
         # test the distribution support
-        rho_bulk = np.sum(soln)*self.vm.cw()
+        np.sum(soln)*self.vm.cw()
         #if( not(
         #    np.allclose(rhoini, rho_bulk, atol=1e-3)
         #)):
@@ -172,12 +171,12 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
 
         return soln
 
-    def ce1(self, rhoini, uxini, uyini, uzini, Tini, 
+    def ce1(self, rhoini, uxini, uyini, uzini, Tini,
             drhoini, duxini, duyini, duzini, dTini):
         cv = self.vm.cv()
         uini = np.array([uxini, uyini, uzini]).reshape((3,1))
         c2 = np.sum((cv-uini)**2, axis=0)
-        soln = ( 
+        soln = (
             (c2/Tini- 2.5)*(cv[0,:]-uxini)*dTini/Tini
             + 2*((cv[0,:]-uxini)*(cv[0,:]-uxini)/Tini - c2/Tini/3.)*duxini
             + 2*((cv[0,:]-uxini)*(cv[1,:]-uyini)/Tini )*duyini
@@ -205,7 +204,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
 
     def apply_init_val(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
 
-        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini, 
+        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini,
             self._uyini, self._uzini, self._Tini)
 
         def isf(data): return isinstance(data, (self.cfg.dtype, float))
@@ -216,7 +215,7 @@ class DGFSMaxwellianExprInitConditionStd(DGFSInitConditionStd):
             for j in range(self.vm.vsize()):
                 scal_upts_full[:, :, j] = mxwl[j]
         else:
-            rhoini, uxini, uyini, uzini, Tini = map(make_shape, 
+            rhoini, uxini, uyini, uzini, Tini = map(make_shape,
                 [rhoini, uxini, uyini, uzini, Tini])
 
             for upt, elem in ndrange(Nq, Ne):
@@ -250,15 +249,15 @@ class DGFSMaxwellianExprOrder1InitConditionStd(
     def apply_init_vals(self, scal_upts_full, Nq, Ne, xsol, **kwargs):
         super().apply_init_vals(scal_upts_full, Nq, Ne, xsol, **kwargs)
 
-        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini, 
+        rhoini, uxini, uyini, uzini, Tini = (self._rhoini, self._uxini,
             self._uyini, self._uzini, self._Tini)
 
         def isf(data): return isinstance(data, (self.cfg.dtype, float))
         def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
-        rhoini, uxini, uyini, uzini, Tini = map(make_shape, 
+        rhoini, uxini, uyini, uzini, Tini = map(make_shape,
                 [rhoini, uxini, uyini, uzini, Tini])
 
-        invjac=kwargs.get('mesh').invjac; basis=kwargs.get('basis'); 
+        invjac=kwargs.get('mesh').invjac; basis=kwargs.get('basis');
         sm=kwargs.get('sm')
         ep=1/sm._prefactor
 
@@ -272,12 +271,12 @@ class DGFSMaxwellianExprOrder1InitConditionStd(
             scal_upts_full[upt, elem, :] *= (1 - fac*self.ce1(
                 rhoini[upt, elem],
                 uxini[upt, elem], uyini[upt, elem], uzini[upt, elem],
-                Tini[upt, elem], 
+                Tini[upt, elem],
                 iJ*drhoini[upt, elem],
                 iJ*duxini[upt,elem], iJ*duyini[upt,elem], iJ*duzini[upt,elem],
-                iJ*dTini[upt, elem], 
+                iJ*dTini[upt, elem],
             ))
-        
+
 
 
 class DGFSMaxwellianExprNonDimInitConditionStd(
@@ -301,7 +300,7 @@ class DGFSMaxwellianExprNonDimInitConditionStd(
 
 
 class DGFSMaxwellianExprNonDimOrder1InitConditionStd(
-        DGFSMaxwellianExprNonDimInitConditionStd, 
+        DGFSMaxwellianExprNonDimInitConditionStd,
         DGFSMaxwellianExprOrder1InitConditionStd):
     """Initial condition with first order term from Chapman-Enskog theory"""
     model = 'maxwellian-expr-nondim-ce1'
@@ -448,11 +447,11 @@ class DGFSSodShockNonDimTubeInitConditionStd(DGFSInitConditionStd):
 
         def isf(data): return isinstance(data, (self.cfg.dtype, float))
         def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
-        rhol, Tl, ulx, rhor, Tr, urx = map(make_shape, 
+        rhol, Tl, ulx, rhor, Tr, urx = map(make_shape,
                 [rhol, Tl, ulx, rhor, Tr, urx])
 
         xMid = self.cfg.lookupfloat(self.name,'xMid')
- 
+
         for upt, elem in ndrange(Nq, Ne):
           if coords[upt,elem] <= xMid:
             Ml = self.maxwellian(rhol[upt,elem], ulx[upt,elem], 0., 0., Tl[upt,elem])

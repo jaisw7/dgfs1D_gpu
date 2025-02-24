@@ -9,6 +9,7 @@ import pycuda.driver as cuda
 from dgfs1D.nputil import get_grid_for_block
 from dgfs1D.util import get_kernel
 from dgfs1D.cublas import CUDACUBLASKernels
+from loguru import logger
 
 class DGFSScatteringModelAstd(object, metaclass=ABCMeta):
     def __init__(self, cfg, velocitymesh, **kwargs):
@@ -24,7 +25,7 @@ class DGFSScatteringModelAstd(object, metaclass=ABCMeta):
 
         # perform any necessary computation
         self.perform_precomputation()
-        print('Finished scattering model precomputation')
+        logger.info('Finished scattering model precomputation')
 
 
     @abstractmethod
@@ -63,7 +64,7 @@ class DGFSBGKDirectGLLScatteringModelAstd(DGFSScatteringModelAstd):
         self._prefactor = (t0*p0/visc)
         self._omega = omega
         self._Pr = Pr
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def nu(self, rho, T):
         return rho*T**(1-self._omega);
@@ -299,7 +300,7 @@ class DGFSESBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAstd)
         self._prefactor = (t0*Pr*p0/visc)
         self._omega = omega
         self._Pr = Pr
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
 
     def perform_precomputation(self):
@@ -367,8 +368,7 @@ class DGFSShakovDirectGLLScatteringModelAstd(DGFSESBGKDirectGLLScatteringModelAs
         self._prefactor = (t0*p0/visc)
         self._omega = omega
         self._Pr = Pr
-        print("prefactor:", self._prefactor)
-
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         self.nalph = 14
@@ -423,7 +423,7 @@ class DGFSBoltzBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAs
         self._omega = omega
         self._Pr = Pr
         #self._prefactor = self._eps*self._pprefactor
-        print("penalized-prefactor:", self._prefactor)
+        logger.info("penalized-prefactor: {}", self._prefactor)
 
 
 
@@ -451,7 +451,7 @@ class DGFSBoltzBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAs
         self._omega = omega
         self._Pr = 1
         #super().load_parameters()
-        print("penalized-prefactor:", self._prefactor)
+        logger.info("penalized-prefactor: {}", self._prefactor)
 
 
     def load_parameters__(self):
@@ -473,7 +473,7 @@ class DGFSBoltzBGKDirectGLLScatteringModelAstd(DGFSBGKDirectGLLScatteringModelAs
         self._omega = omega
         self._Pr = Pr
         #self._prefactor = self._eps*self._pprefactor
-        print("penalized-prefactor:", self._prefactor)
+        logger.info("penalized-prefactor: {}", self._prefactor)
 
 
 
@@ -502,7 +502,7 @@ class DGFSBoltzESBGKDirectGLLScatteringModelAstd(DGFSESBGKDirectGLLScatteringMod
         self._omega = omega
         self._Pr = Pr
         #self._prefactor = self._eps*self._pprefactor
-        print("penalized-prefactor:", self._prefactor)
+        logger.info("penalized-prefactor: {}", self._prefactor)
 
 
 
@@ -522,7 +522,7 @@ class DGFSBoltzShakovDirectGLLScatteringModelAstd(DGFSShakovDirectGLLScatteringM
         self._omega = omega
         self._Pr = Pr
         self._prefactor = self._eps*143.2601955378592 #self._pprefactor
-        print("penalized-prefactor:", self._prefactor)
+        logger.info("penalized-prefactor: {}", self._prefactor)
 
 
 

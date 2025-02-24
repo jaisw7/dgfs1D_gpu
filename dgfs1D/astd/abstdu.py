@@ -8,6 +8,7 @@ import os
 import numpy as np
 import itertools as it
 from timeit import default_timer as timer
+from loguru import logger
 
 import mpi4py.rc
 mpi4py.rc.initialize = False
@@ -518,7 +519,7 @@ def main():
     else:
         comm.Reduce(get_mpi('in_place'), elapsed, op=get_mpi('sum'), root=root)
         avgtime = elapsed[0]/comm.size
-        print("Nsteps", nacptsteps, ", elapsed time", avgtime, "s")
+        logger.info("Nsteps {} elapsed time {} s", nacptsteps, avgtime)
 
 
 def __main__():
@@ -538,7 +539,7 @@ def __main__():
     #from pycuda.autoinit import context
 
     # define the local rank based cuda device
-    print("Local rank", get_local_rank())
+    logger.info("Local rank {}", get_local_rank())
     os.environ.pop('CUDA_DEVICE', None)
     devid = get_local_rank()
     os.environ['CUDA_DEVICE'] = str(devid)

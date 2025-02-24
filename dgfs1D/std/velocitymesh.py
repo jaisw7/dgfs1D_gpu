@@ -3,6 +3,7 @@ import numpy as np
 
 from dgfs1D.sphericaldesign import get_sphquadrule
 from pycuda import gpuarray
+from loguru import logger
 
 class DGFSVelocityMeshStd(object):
     R0 = 8.3144598
@@ -14,7 +15,7 @@ class DGFSVelocityMeshStd(object):
         # Construct the velocity mesh
         self._construct_velocity_mesh()
 
-        # Load the quadrature points (for integration) 
+        # Load the quadrature points (for integration)
         self._load_quadrature()
 
         # Construct the spherical mesh
@@ -32,9 +33,9 @@ class DGFSVelocityMeshStd(object):
         # define the velocity mesh
         self._Nv = self.cfg.lookupint('velocity-mesh', 'Nv')
         self._vsize = self._Nv**3
-        self._Nrho = self.cfg.lookupordefault('velocity-mesh', 'Nrho', 
+        self._Nrho = self.cfg.lookupordefault('velocity-mesh', 'Nrho',
             int(self._Nv/2))
-        print("Nrho: ", self._Nrho)
+        logger.info("Nrho: {}", self._Nrho)
 
         _cmax = self.cfg.lookupfloat('velocity-mesh', 'cmax')
         _Tmax = self.cfg.lookupfloat('velocity-mesh', 'Tmax')
@@ -50,14 +51,14 @@ class DGFSVelocityMeshStd(object):
         self._L = _cmax + _dev*np.sqrt(_Tmax);
         self._S = self._L*2.0/(3.0+np.sqrt(2.0));
         self._R = 2*self._S;
-        print("velocityMesh: (%s %s)"%(-self._L,self._L))
-        print("n0, u0, t0: (%s %s %s)"%(self._n0, self._u0, self._H0/self._u0))
+        logger.info("velocityMesh: ({} {})", -self._L, self._L)
+        logger.info("n0, u0, t0: ({} {} {})", self._n0, self._u0, self._H0/self._u0)
 
         self._dev = _dev
 
         # define the weight of the velocity mesh
         self._cw = (2.0*self._L/self._Nv)**3
-        c0 = np.linspace(-self._L+self._L/self._Nv, 
+        c0 = np.linspace(-self._L+self._L/self._Nv,
             self._L-self._L/self._Nv, self._Nv)
         #self._cv = c0[np.mgrid[0:self._Nv, 0:self._Nv, 0:self._Nv]]
         #self._cv = self._cv.reshape((3,self._vsize))
@@ -76,7 +77,7 @@ class DGFSVelocityMeshStd(object):
         self._d_cvz = gpuarray.to_gpu(self._cv[2,:])
 
     def _load_quadrature(self):
-        quadrule = self.cfg.lookupordefault('velocity-mesh', 'quad-rule', 
+        quadrule = self.cfg.lookupordefault('velocity-mesh', 'quad-rule',
             'jacobi')
         vquads = {
             'jacobi': zwgj,
@@ -89,8 +90,8 @@ class DGFSVelocityMeshStd(object):
         assert quadrule in vquads, "Valid quads:"+str(vquads.keys())
 
         # the default quadrules does not provide enough points
-        self._qz, self._qw = vquads[quadrule](self._Nrho, a, b)  
-        # scale the quadrature from [-1, 1] to [0, R] 
+        self._qz, self._qw = vquads[quadrule](self._Nrho, a, b)
+        # scale the quadrature from [-1, 1] to [0, R]
         self._qz = (self._R/2.0)*(1.0+self._qz)
         self._qw = ((self._R-0.0)/2.0)*self._qw
 
@@ -121,10 +122,10 @@ class DGFSVelocityMeshStd(object):
     def n0(self): return self._n0
     def u0(self): return self._u0
     def molarMass0(self): return self._molarMass0
-    
+
     #def d_cv(self): return self._d_cv
     def d_cvx(self): return self._d_cvx
     def d_cvy(self): return self._d_cvy
     def d_cvz(self): return self._d_cvz
-    
+
 

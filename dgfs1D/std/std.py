@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-""" 
+"""
 DGFS in one dimension
 """
 
@@ -8,14 +8,15 @@ import os
 import numpy as np
 import itertools as it
 from timeit import default_timer as timer
+from loguru import logger
 
 import mpi4py.rc
 mpi4py.rc.initialize = False
 
 from dgfs1D.mesh import Mesh
 from dgfs1D.initialize import initialize
-from dgfs1D.nputil import (subclass_where, get_grid_for_block, 
-                            DottedTemplateLookup, ndrange)
+from dgfs1D.nputil import (subclass_where, get_grid_for_block,
+                            DottedTemplateLookup)
 from dgfs1D.nputil import get_comm_rank_root, get_local_rank, get_mpi
 from dgfs1D.basis import Basis
 from dgfs1D.std.velocitymesh import DGFSVelocityMeshStd
@@ -27,12 +28,11 @@ from dgfs1D.std.distribution import DGFSDistributionStd
 from dgfs1D.std.distributionslice import DGFSDistributionSliceStd
 from dgfs1D.std.bc import DGFSBCStd
 from dgfs1D.axnpby import get_axnpby_kerns
-from dgfs1D.util import get_kernel, filter_tol, check
+from dgfs1D.util import get_kernel, check
 from dgfs1D.std.integrator import DGFSIntegratorStd
 
 from pycuda import compiler, gpuarray
 import pycuda.driver as cuda
-from gimmik import generate_mm
 
 def main():
     # who am I in this world? (Bulleh Shah, 18th century sufi poet)
@@ -67,7 +67,7 @@ def main():
 
     # the zeros
     z = basis.z
-    
+
     # jacobian of the mapping from D^{st}=[-1,1] to D
     jac, invjac = mesh.jac, mesh.invjac
 
@@ -77,7 +77,7 @@ def main():
 
     # load the scattering model
     smn = cfg.lookup('scattering-model', 'type')
-    scatteringcls = subclass_where(DGFSScatteringModelStd, 
+    scatteringcls = subclass_where(DGFSScatteringModelStd,
         scattering_model=smn)
     sm = scatteringcls(cfg, vm, Ne=Ne)
 
@@ -86,7 +86,7 @@ def main():
     nsteps = np.ceil((tf - ti)/dt)
     dt = (tf - ti)/nsteps
 
-    # Compute the location of the solution points 
+    # Compute the location of the solution points
     xsol = np.array([0.5*(xmesh[j]+xmesh[j+1])+jac[j]*z for j in range(Ne)]).T
     xcoeff = np.einsum("kq,qe->ke", basis.fwdTransMat, xsol)
 
@@ -104,12 +104,12 @@ def main():
     # operator generator for matrix operations
     matOpGen = lambda v: lambda arg0, arg1: v.prepared_call(
                 grid_NeNv, block, NeNv, arg0.ptr, NeNv, arg1.ptr, NeNv)
-    
+
     # forward trans, backward, backward (at faces), derivative kernels
     fwdTrans_Op, bwdTrans_Op, bwdTransFace_Op, deriv_Op, invMass_Op, \
         computeCellAvg_Op, extractDrLin_Op = map(
-        matOpGen, (basis.fwdTransOp, basis.bwdTransOp, 
-            basis.bwdTransFaceOp, basis.derivOp, basis.invMassOp, 
+        matOpGen, (basis.fwdTransOp, basis.bwdTransOp,
+            basis.bwdTransFaceOp, basis.derivOp, basis.invMassOp,
             basis.computeCellAvgKern, basis.extractDrLinKern)
     )
 
@@ -122,21 +122,21 @@ def main():
         K=K, Ne=Ne, Nq=Nq, vsize=Nv, dtype=cfg.dtypename,
         mapL=mapL, mapR=mapR, offsetL=0, offsetR=len(mapR)-1,
         invjac=invjac, gRD=basis.gRD, gLD=basis.gLD, xsol=xsol)
-    kernsrc = DottedTemplateLookup('dgfs1D.std.kernels', 
+    kernsrc = DottedTemplateLookup('dgfs1D.std.kernels',
                                     dfltargs).get_template('std').render()
     kernmod = compiler.SourceModule(kernsrc)
 
-    dfltargs.update(nalph=5, Dr=basis.derivMat)     
-    kernlimssrc = DottedTemplateLookup('dgfs1D.astd.kernels', 
+    dfltargs.update(nalph=5, Dr=basis.derivMat)
+    kernlimssrc = DottedTemplateLookup('dgfs1D.astd.kernels',
                                     dfltargs).get_template('limiters').render()
     kernlimsmod = compiler.SourceModule(kernlimssrc)
 
     # prepare operators for execution (see std.mako for description)
-    (extLeft_Op, extRight_Op, transferBC_L_Op, transferBC_R_Op, 
-        insertBC_L_Op, insertBC_R_Op) = map(lambda v: 
+    (extLeft_Op, extRight_Op, transferBC_L_Op, transferBC_R_Op,
+        insertBC_L_Op, insertBC_R_Op) = map(lambda v:
         lambda *args: get_kernel(kernmod, v, 'PP').prepared_call(
             grid_Nv, block, *list(map(lambda c: c.ptr, args))
-        ), ("extract_left", "extract_right", "transfer_bc_left", 
+        ), ("extract_left", "extract_right", "transfer_bc_left",
             "transfer_bc_right", "insert_bc_left", "insert_bc_right")
     )
 
@@ -148,13 +148,13 @@ def main():
 
     # and the last rank comm.size-1 gets the right boundary
     if rank==comm.size-1:  bcr_type = cfg.lookup('soln-bcs-xhi', 'type')
-    
-    # prepare kernels for left boundary    
+
+    # prepare kernels for left boundary
     bcl_cls = subclass_where(DGFSBCStd, type=bcl_type)
     bcl = bcl_cls(xmesh[0], -1., vm, cfg, 'soln-bcs-xlo')
     updateBC_L_Op = bcl.updateBCKern
     applyBC_L_Op = bcl.applyBCKern
-    
+
     # prepare kernels for right boundary
     bcr_cls = subclass_where(DGFSBCStd, type=bcr_type)
     bcr = bcr_cls(xmesh[-1], 1., vm, cfg, 'soln-bcs-xhi')
@@ -164,7 +164,7 @@ def main():
     # flux kernel
     flux = get_kernel(kernmod, "flux", 'PPPPP')
     flux_Op = lambda d_uL, d_uR, d_jL, d_jR: flux.prepared_call(
-            grid_Nv, block, 
+            grid_Nv, block,
             d_uL.ptr, d_uR.ptr, vm.d_cvx().ptr, d_jL.ptr, d_jR.ptr)
 
     # multiply the derivative by the advection velocity
@@ -195,19 +195,19 @@ def main():
     # linear limiter
     limitLin = get_kernel(kernlimsmod, "limitLin", 'PPPP')
     limitLin_Op = lambda d_u, d_ulx, d_uavg, d_ulim: \
-        limitLin.prepared_call(grid_Nv, block, d_u.ptr, d_ulx.ptr, 
+        limitLin.prepared_call(grid_Nv, block, d_u.ptr, d_ulx.ptr,
             d_uavg.ptr, d_ulim.ptr)
 
     # allocations on gpu
     d_usol = gpuarray.empty(NqNeNv, dtype=cfg.dtype)
     d_usolF = gpuarray.empty(NqfNeNv, dtype=cfg.dtype)
-    d_uL = gpuarray.empty(NfNv, dtype=cfg.dtype) 
-    d_uR = gpuarray.empty(NfNv, dtype=cfg.dtype) 
-    d_jL = gpuarray.empty(NfNv, dtype=cfg.dtype) 
-    d_jR = gpuarray.empty(NfNv, dtype=cfg.dtype) 
-    d_bcL = gpuarray.empty(Nv, dtype=cfg.dtype) 
-    d_bcR = gpuarray.empty(Nv, dtype=cfg.dtype) 
-    d_bcT = gpuarray.empty(Nv, dtype=cfg.dtype) 
+    d_uL = gpuarray.empty(NfNv, dtype=cfg.dtype)
+    d_uR = gpuarray.empty(NfNv, dtype=cfg.dtype)
+    d_jL = gpuarray.empty(NfNv, dtype=cfg.dtype)
+    d_jR = gpuarray.empty(NfNv, dtype=cfg.dtype)
+    d_bcL = gpuarray.empty(Nv, dtype=cfg.dtype)
+    d_bcR = gpuarray.empty(Nv, dtype=cfg.dtype)
+    d_bcT = gpuarray.empty(Nv, dtype=cfg.dtype)
     d_ux = gpuarray.empty(KNeNv, dtype=cfg.dtype)
     d_f = gpuarray.empty(KNeNv, dtype=cfg.dtype)
     d_g = gpuarray.empty(KNeNv, dtype=cfg.dtype)
@@ -245,25 +245,25 @@ def main():
 
         # backward transform to solution space
         bwdTrans_Op(d_ucoeff, d_usol)
-    
-    # prepare the post-processing handlers    
+
+    # prepare the post-processing handlers
     # For computing moments
-    moments = DGFSMomWriterStd(ti, basis.interpMat, xcoeff, d_ucoeff, vm, cfg, 
+    moments = DGFSMomWriterStd(ti, basis.interpMat, xcoeff, d_ucoeff, vm, cfg,
         'dgfsmomwriter')
 
     # For computing residual
     residual = DGFSResidualStd(cfg, 'dgfsresidual')
 
     # For writing distribution function
-    distribution = DGFSDistributionStd(ti, (K, Ne, Nv), cfg, 
+    distribution = DGFSDistributionStd(ti, (K, Ne, Nv), cfg,
         'dgfsdistwriter')
 
     # For writing distribution slice
     if(cfg.has_section('dgfsdistslicewriter')):
-        distributionslice = DGFSDistributionSliceStd(ti, (K, Ne, Nv), 
+        distributionslice = DGFSDistributionSliceStd(ti, (K, Ne, Nv),
             basis.interpMat, vm, cfg, 'dgfsdistslicewriter')
     else:
-        distributionslice = lambda *args: None 
+        distributionslice = lambda *args: None
 
     # Actual algorithm
 
@@ -277,7 +277,7 @@ def main():
     if up_nbr >= comm.size: up_nbr = MPI.PROC_NULL
     if down_nbr < 0: down_nbr = MPI.PROC_NULL
 
-    # define the ode rhs    
+    # define the ode rhs
     def rhs(time, d_ucoeff_in, d_ucoeff_out):
 
         # reconstruct solution at faces
@@ -293,39 +293,39 @@ def main():
 
         # this can be adjusted in case of RDMA enabled MPI support
         h_bcL, h_bcR = d_bcL.get(), d_bcR.get()
-        #h_bcL, h_bcR = map(lambda v: v.gpudata.as_buffer(v.nbytes), 
+        #h_bcL, h_bcR = map(lambda v: v.gpudata.as_buffer(v.nbytes),
         #               (d_bcL, d_bcR))
-        
+
         # send information
         req1 = comm.isend(d_bcR, dest=up_nbr)  # to upstream neighbour
-        req2 = comm.isend(d_bcL, dest=down_nbr)  # to downstream neighbour 
+        req2 = comm.isend(d_bcL, dest=down_nbr)  # to downstream neighbour
 
         # recieve information
         h_bcL = comm.recv(source=down_nbr)  # from downstream neighbour
         h_bcR = comm.recv(source=up_nbr)    # from upstream neighbour
         MPI.Request.Waitall([req1, req2])
-        
+
         # set information at left boundary
         if h_bcL:
             d_bcL.set(h_bcL)
         else:
             transferBC_L_Op(d_uL, d_bcL)  # Transfer the ghost BC info
-        
+
         # set information at right boundary
         if h_bcR:
             d_bcR.set(h_bcR)
         else:
             transferBC_R_Op(d_uR, d_bcR)  # Transfer the ghost BC info
-        
-        # At left boundary        
+
+        # At left boundary
         #transferBC_L_Op(d_uL, d_bcL)       # Transfer the ghost BC info
-        updateBC_L_Op(d_bcL, time)         # now update boundary info 
+        updateBC_L_Op(d_bcL, time)         # now update boundary info
         applyBC_L_Op(d_bcL, d_bcT, time)   # apply boundary condition
         insertBC_L_Op(d_bcT, d_uL)         # insert info to global face-flux
 
-        # At right boundary        
+        # At right boundary
         #transferBC_R_Op(d_uR, d_bcL)       # Transfer the ghost BC info
-        updateBC_R_Op(d_bcR, time)         # now update boundary info 
+        updateBC_R_Op(d_bcR, time)         # now update boundary info
         applyBC_R_Op(d_bcR, d_bcT, time)   # apply boundary condition
         insertBC_R_Op(d_bcT, d_uR)         # insert info to global face-flux
 
@@ -336,14 +336,14 @@ def main():
         #jR = fupw - fR  # Compute the jump at right boundary
         flux_Op(d_uL, d_uR, d_jL, d_jR)
 
-        # Step:3 evaluate the derivative 
+        # Step:3 evaluate the derivative
         # ux = -cvx*np.einsum("ml,em->el", Sx, ucoeff)
         deriv_Op(d_ucoeff_in, d_ux)
         mulbyadv_Op(d_ux)
 
         # Compute the continuous flux for each element in strong form
         totalFlux_Op(d_ux, d_jL, d_jR)
-        
+
         # multiply by the inverse jacobian
         mulbyinvjac_Op(d_ux)
 
@@ -354,13 +354,13 @@ def main():
             trans_V_Op[m](d_ucoeff_in, d_g)
             for r, e in it.product(sigModes[m], range(Ne)):
                sm.fs(d_f, d_g, d_ux, e, r, m)
-        
+
         #for r, e in it.product(range(K), range(Ne)):
         #    sm.fs(d_ucoeff_in, d_ucoeff_in, d_ux, e, r, r)
 
         # Step:5 Multiply by inverse mass matrix
         invMass_Op(d_ux, d_ucoeff_out)
-        
+
         # Reconstruct the solution (Useful for highly non-linear probs)
         #bwdTrans_Op(d_ucoeff_out, d_usol)
         #fwdTrans_Op(d_usol, d_ucoeff_out)
@@ -395,12 +395,12 @@ def main():
 
     while(time < tf):
 
-        # March in time 
+        # March in time
         odes.integrate(time, dt, d_ucoeff)
         if limitOn: limit(d_ucoeff, d_ucoeff)
 
         # increment time
-        time += dt 
+        time += dt
         nacptsteps += 1
 
         # Final step: post processing routines
@@ -420,7 +420,7 @@ def main():
     else:
         comm.Reduce(get_mpi('in_place'), elapsed, op=get_mpi('sum'), root=root)
         avgtime = elapsed[0]/comm.size
-        print("Nsteps", nacptsteps, ", elapsed time", avgtime, "s")
+        logger.info("Nsteps {} elapsed time {} s", nacptsteps, avgtime)
 
 
 def __main__():
@@ -434,7 +434,7 @@ def __main__():
     MPI.Init()
 
     # define the local rank based cuda device
-    print("Local rank", get_local_rank())
+    logger.info("Local rank {}", get_local_rank())
     os.environ.pop('CUDA_DEVICE', None)
     devid = get_local_rank()
     os.environ['CUDA_DEVICE'] = str(devid)

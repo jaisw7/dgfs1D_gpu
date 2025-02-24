@@ -5,16 +5,15 @@ from math import gamma, isnan, ceil
 # need to fix this (to make things backend independent)
 from pycuda import compiler, gpuarray
 from dgfs1D.nputil import DottedTemplateLookup
-from dgfs1D.cufft import (cufftPlan3d, cufftPlanMany, 
-                            cufftExecD2Z, cufftExecZ2Z, cufftExecC2C,
-                            CUFFT_D2Z, CUFFT_Z2Z, CUFFT_C2C, 
-                            CUFFT_FORWARD, CUFFT_INVERSE
+from dgfs1D.cufft import (cufftPlan3d, cufftPlanMany,
+                            cufftExecZ2Z, cufftExecC2C, CUFFT_Z2Z,
+                            CUFFT_C2C, CUFFT_FORWARD, CUFFT_INVERSE
                         )
-import pycuda.driver as cuda
 from dgfs1D.nputil import get_grid_for_block
 from dgfs1D.util import get_kernel
 from dgfs1D.cublas import CUDACUBLASKernels
 from dgfs1D.cusolver import CUDACUSOLVERKernels
+from loguru import logger
 
 class DGFSScatteringModelStd(object, metaclass=ABCMeta):
     def __init__(self, cfg, velocitymesh, **kwargs):
@@ -26,7 +25,7 @@ class DGFSScatteringModelStd(object, metaclass=ABCMeta):
 
         # perform any necessary computation
         self.perform_precomputation()
-        print('Finished scattering model precomputation')
+        logger.info('Finished scattering model precomputation')
 
 
     @abstractmethod
@@ -37,7 +36,7 @@ class DGFSScatteringModelStd(object, metaclass=ABCMeta):
     def perform_precomputation(self):
         pass
 
-    @abstractmethod 
+    @abstractmethod
     def fs(self, d_arr_in, d_arr_out, elem, upt):
         pass
 
@@ -67,7 +66,7 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
 
     @property
     def prefacSK(self): return self._prefactorSK
-        
+
     def load_parameters(self):
         alpha = 1.0
         omega = self.cfg.lookupfloat('scattering-model', 'omega');
@@ -83,26 +82,26 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
             pow(2.0, 2-omega+alpha)*gamma(2.5-omega)*np.pi);
         self._omega = omega
 
-        print("Kn:", 1.0/invKn)
-        print("prefactor:", self._prefactor)
+        logger.info("Kn: {}", 1.0/invKn)
+        logger.info("prefactor: {}", self._prefactor)
 
         # Added for penalizing collision operator
         Pr = self.cfg.lookupordefault('scattering-model', 'Pr', 2./3.)
         muRef = self.cfg.lookupfloat('scattering-model', 'muRef');
-        
+
         t0 = self.vm.H0()/self.vm.u0() # non-dimensionalization time scale
         visc = muRef*((self.vm.T0()/Tref)**omega) # the viscosity
         p0 = self.vm.n0()*self.vm.R0/self.vm.NA*self.vm.T0() # non-dim press
 
         self._prefactorBGK = (t0*1.0*p0/visc)
-        print("prefactorBGK:", self._prefactorBGK)
-        print("Kn-BGK:", 1./self._prefactorBGK)
+        logger.info("prefactorBGK: {}", self._prefactorBGK)
+        logger.info("Kn-BGK: {}", 1./self._prefactorBGK)
         self._prefactorESBGK = (t0*Pr*p0/visc)
-        print("prefactorESBGK:", self._prefactorESBGK)
-        print("Kn-ESBGK:", 1./self._prefactorESBGK)
+        logger.info("prefactorESBGK: {}", self._prefactorESBGK)
+        logger.info("Kn-ESBGK: {}", 1./self._prefactorESBGK)
         self._prefactorSK = self._prefactorBGK
-        print("prefactorSK:", self._prefactorSK)
-        print("Kn-SHAKOV:", 1./self._prefactorSK)
+        logger.info("prefactorSK: {}", self._prefactorSK)
+        logger.info("Kn-SHAKOV: {}", 1./self._prefactorSK)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
@@ -130,13 +129,13 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
         d_lx = gpuarray.to_gpu(np.ascontiguousarray(l[0,:]))
         d_ly = gpuarray.to_gpu(np.ascontiguousarray(l[1,:]))
         d_lz = gpuarray.to_gpu(np.ascontiguousarray(l[2,:]))
-        
+
         dtype = self.cfg.dtype
         cdtype = np.complex128
         CUFFT_T2T = CUFFT_Z2Z
         self.cufftExecT2T = cufftExecZ2Z
 
-        if dtype==np.float32: 
+        if dtype==np.float32:
             cdtype = np.complex64
             CUFFT_T2T = CUFFT_C2C
             self.cufftExecT2T = cufftExecC2C
@@ -161,16 +160,16 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
 
         #planD2Z = cufftPlan3d(N, N, N, CUFFT_D2Z)
         self.planT2T_MNrho = cufftPlanMany(rank, n.ctypes.data,
-            None, 1, vsize, 
-            None, 1, vsize, 
+            None, 1, vsize,
+            None, 1, vsize,
             CUFFT_T2T, M*Nrho)
         self.planT2T = cufftPlan3d(N, N, N, CUFFT_T2T)
 
-        dfltargs = dict(dtype=self.cfg.dtypename, 
-            Nrho=Nrho, M=M, 
-            vsize=vsize, sw=self.vm.sw(), prefac=self._prefactor, 
-            qw=qw, sz=sz, gamma=self._gamma, 
-            L=L, qz=qz, Ne=self._Ne, block_size=self.block[0], 
+        dfltargs = dict(dtype=self.cfg.dtypename,
+            Nrho=Nrho, M=M,
+            vsize=vsize, sw=self.vm.sw(), prefac=self._prefactor,
+            qw=qw, sz=sz, gamma=self._gamma,
+            L=L, qz=qz, Ne=self._Ne, block_size=self.block[0],
             cw=self.vm.cw()
         )
         src = DottedTemplateLookup(
@@ -182,13 +181,13 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
 
         self.d_aa = gpuarray.empty(Nrho*M*vsize, dtype=dtype)
         precompute_aa = get_kernel(module, "precompute_aa", 'PPPP')
-        precompute_aa.prepared_call(self.grid, self.block, d_lx.ptr, d_ly.ptr, 
+        precompute_aa.prepared_call(self.grid, self.block, d_lx.ptr, d_ly.ptr,
             d_lz.ptr, self.d_aa.ptr)
 
         self.d_bb1 = gpuarray.empty(Nrho*vsize, dtype=dtype)
         self.d_bb2 = gpuarray.empty(vsize, dtype=dtype)
         precompute_bb = get_kernel(module, "precompute_bb", 'PPPPP')
-        precompute_bb.prepared_call(self.grid, self.block, d_lx.ptr, d_ly.ptr, 
+        precompute_bb.prepared_call(self.grid, self.block, d_lx.ptr, d_ly.ptr,
             d_lz.ptr, self.d_bb1.ptr, self.d_bb2.ptr)
 
         # transform scalar to complex
@@ -246,73 +245,73 @@ class DGFSVHSGLLScatteringModelStd(DGFSScatteringModelStd):
                 (1,1), (1,1,1), elem, mode, d_nutmp.ptr, d_out.ptr)
         self.nuFunc = sum_
 
-        
+
     #def fs(self, d_arr_in, d_arr_out, elem, modein, modeout):
     #def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
-    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout, 
+    def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout,
         d_nu=None):
         d_f0 = d_arr_in.ptr
         d_Q = d_arr_out.ptr
-            
+
         # construct d_fC from d_f0
-        self.r2zKern.prepared_call(self.grid, self.block, 
+        self.r2zKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_fC.ptr)
 
         # compute forward FFT of f | Ftf = fft(f)
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_fC.ptr, self.d_FTf.ptr, CUFFT_FORWARD)
-        #self.scaleKern.prepared_call(self.grid, self.block, 
+        #self.scaleKern.prepared_call(self.grid, self.block,
         #    self.d_FTf.ptr)
-        
+
         # compute t1_{pqr} = cos(a_{pqr})*FTf_r; t2_{pqr} = sin(a_{pqr})*FTf_r
         # scales d_FTf
-        self.cosSinMultKern.prepared_call(self.grid, self.block, 
+        self.cosSinMultKern.prepared_call(self.grid, self.block,
             self.d_aa.ptr, self.d_FTf.ptr, self.d_t1.ptr, self.d_t2.ptr)
 
-        # compute inverse fft 
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        # compute inverse fft
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t1.ptr, self.d_t3.ptr, CUFFT_INVERSE)
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t2.ptr, self.d_t4.ptr, CUFFT_INVERSE)
 
         # compute t2 = t3^2 + t4^2
-        self.magSqrKern.prepared_call(self.grid, self.block, 
+        self.magSqrKern.prepared_call(self.grid, self.block,
             self.d_t3.ptr, self.d_t4.ptr, self.d_t2.ptr)
 
         # compute t1 = fft(t2)
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t2.ptr, self.d_t1.ptr, CUFFT_FORWARD)
-        # scaling factor is multiplied in the computeQGKern 
+        # scaling factor is multiplied in the computeQGKern
         # note: t1 is not modified in computeQGKern
-        #self.scaleMNKern.prepared_call(self.grid, self.block, 
+        #self.scaleMNKern.prepared_call(self.grid, self.block,
         #    self.d_t1.ptr)
 
         # compute fC_r = 2*wrho_p*ws*b1_p*t1_r
-        self.computeQGKern.prepared_call(self.grid, self.block, 
+        self.computeQGKern.prepared_call(self.grid, self.block,
             self.d_bb1.ptr, self.d_t1.ptr, self.d_fC.ptr)
 
         # inverse fft| QG = iff(fC)  [Gain computed]
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_fC.ptr, self.d_QG.ptr, CUFFT_INVERSE)
 
         # compute FTf_r = b2_r*FTf_r
-        self.axKern.prepared_call(self.grid, self.block, 
+        self.axKern.prepared_call(self.grid, self.block,
             self.d_bb2.ptr, self.d_FTf.ptr)
 
         # inverse fft| fC = iff(FTf)
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_FTf.ptr, self.d_fC.ptr, CUFFT_INVERSE)
 
-        if d_nu: 
+        if d_nu:
             self.nuFunc(self.d_fC, d_nu, elem, modeout)
-            #self.nu2Kern.prepared_call(self.grid, self.block, 
+            #self.nu2Kern.prepared_call(self.grid, self.block,
             #    elem, modeout, self.d_fC.ptr, d_nu.ptr)
-        
+
         # outKern
-        self.outAppendKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
+        self.outAppendKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
             self.d_QG.ptr, self.d_fC.ptr, d_f0, d_Q)
-        
+
 
 # for full nodal version
 class DGFSVHSScatteringModelStd(DGFSVHSGLLScatteringModelStd):
@@ -348,85 +347,85 @@ class DGFSVHSScatteringModelStd(DGFSVHSGLLScatteringModelStd):
         d_f = d_arr_in1.ptr
         d_g = d_arr_in2.ptr
         d_Q = d_arr_out.ptr
-            
+
         # construct d_fC from d_f
-        self.r2zKern.prepared_call(self.grid, self.block, 
+        self.r2zKern.prepared_call(self.grid, self.block,
             elem, modein, d_f, self.d_fC.ptr)
 
         # construct d_gC from d_g
-        self.r2zKern.prepared_call(self.grid, self.block, 
+        self.r2zKern.prepared_call(self.grid, self.block,
             elem, modein, d_g, self.d_gC.ptr)
 
         # compute forward FFT of f | FTf = fft(f)
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_fC.ptr, self.d_FTf.ptr, CUFFT_FORWARD)
-        #self.scaleKern.prepared_call(self.grid, self.block, 
+        #self.scaleKern.prepared_call(self.grid, self.block,
         #    self.d_FTf.ptr)
 
         # compute forward FFT of g | FTg = fft(g)
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_gC.ptr, self.d_FTg.ptr, CUFFT_FORWARD)
-        #self.scaleKern.prepared_call(self.grid, self.block, 
+        #self.scaleKern.prepared_call(self.grid, self.block,
         #    self.d_FTg.ptr)
-        
+
         # compute t1_{pqr} = cos(a_{pqr})*FTf_r; t2_{pqr} = cos(a_{pqr})*FTg_r
         # scales d_FTf, d_FTg
-        self.cosMultKern.prepared_call(self.grid, self.block, 
-            self.d_aa.ptr, self.d_FTf.ptr, self.d_FTg.ptr, 
+        self.cosMultKern.prepared_call(self.grid, self.block,
+            self.d_aa.ptr, self.d_FTf.ptr, self.d_FTg.ptr,
             self.d_t1.ptr, self.d_t2.ptr)
 
-        # compute inverse fft 
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        # compute inverse fft
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t1.ptr, self.d_t3.ptr, CUFFT_INVERSE)
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t2.ptr, self.d_t4.ptr, CUFFT_INVERSE)
 
         # compute t5 = t3*t4
-        self.cplxMul.prepared_call(self.grid, self.block, 
+        self.cplxMul.prepared_call(self.grid, self.block,
             self.d_t3.ptr, self.d_t4.ptr, self.d_t5.ptr)
 
         # compute t1_{pqr} = sin(a_{pqr})*FTf_r; t2_{pqr} = sin(a_{pqr})*FTg_r
         # "does not" scale d_FTf, d_FTg
-        self.sinMultKern.prepared_call(self.grid, self.block, 
-            self.d_aa.ptr, self.d_FTf.ptr, self.d_FTg.ptr, 
+        self.sinMultKern.prepared_call(self.grid, self.block,
+            self.d_aa.ptr, self.d_FTf.ptr, self.d_FTg.ptr,
             self.d_t1.ptr, self.d_t2.ptr)
 
-        # compute inverse fft 
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        # compute inverse fft
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t1.ptr, self.d_t3.ptr, CUFFT_INVERSE)
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t2.ptr, self.d_t4.ptr, CUFFT_INVERSE)
 
         # compute t5 += t3*t4
-        self.cplxMulAdd.prepared_call(self.grid, self.block, 
+        self.cplxMulAdd.prepared_call(self.grid, self.block,
             self.d_t3.ptr, self.d_t4.ptr, self.d_t5.ptr)
 
         # compute t1 = fft(t5)
-        self.cufftExecT2T(self.planT2T_MNrho, 
+        self.cufftExecT2T(self.planT2T_MNrho,
             self.d_t5.ptr, self.d_t1.ptr, CUFFT_FORWARD)
-        # scaling factor is multiplied in the computeQGKern 
+        # scaling factor is multiplied in the computeQGKern
         # note: t1 is not modified in computeQGKern
-        #self.scaleMNKern.prepared_call(self.grid, self.block, 
+        #self.scaleMNKern.prepared_call(self.grid, self.block,
         #    self.d_t1.ptr)
 
         # compute fC_r = 2*wrho_p*ws*b1_p*t1_r
-        self.computeQGKern.prepared_call(self.grid, self.block, 
+        self.computeQGKern.prepared_call(self.grid, self.block,
             self.d_bb1.ptr, self.d_t1.ptr, self.d_fC.ptr)
 
         # inverse fft| QG = iff(fC)  [Gain computed]
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_fC.ptr, self.d_QG.ptr, CUFFT_INVERSE)
 
         # compute FTg_r = b2_r*FTg_r
-        self.axKern.prepared_call(self.grid, self.block, 
+        self.axKern.prepared_call(self.grid, self.block,
             self.d_bb2.ptr, self.d_FTg.ptr)
 
         # inverse fft| fC = iff(FTg)
-        self.cufftExecT2T(self.planT2T, 
+        self.cufftExecT2T(self.planT2T,
             self.d_FTg.ptr, self.d_fC.ptr, CUFFT_INVERSE)
-        
+
         # outKern
-        self.outAppendKern.prepared_call(self.grid, self.block, 
+        self.outAppendKern.prepared_call(self.grid, self.block,
             elem, modein, modeout, self.d_QG.ptr, self.d_fC.ptr, d_f, d_Q)
 
 
@@ -436,8 +435,8 @@ class DGFSVHSScatteringModelStd(DGFSVHSGLLScatteringModelStd):
 """
 References:
 Mieussens, Luc. Journal of Computational Physics 162.2 (2000): 429-466.
-"Discrete-velocity models and numerical schemes for the Boltzmann-BGK 
-equation in plane and axisymmetric geometries." 
+"Discrete-velocity models and numerical schemes for the Boltzmann-BGK
+equation in plane and axisymmetric geometries."
 
 Sruti Chigullapalli, PhD thesis, 2011, Purdue University
 "Deterministic Approach for Unsteady Rarefied Flow Simulations in Complex
@@ -465,27 +464,26 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
 
         self._prefactor = (t0*Pr*p0/visc)
         self._omega = omega
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
         # compute l
-        Nv = self.vm.Nv()
-        Nrho = self.vm.Nrho()
-        M = self.vm.M()
-        L = self.vm.L()
-        qz = self.vm.qz()
-        qw = self.vm.qw()
-        sz = self.vm.sz()
+        self.vm.Nv()
+        self.vm.Nrho()
+        self.vm.M()
+        self.vm.L()
+        self.vm.qz()
+        self.vm.qw()
+        self.vm.sz()
         vsize = self.vm.vsize()
         cv = self.vm.cv()
         self.cw = self.vm.cw()
 
         # the precision
         dtype = self.cfg.dtype
-        d = 'd'
 
-        # number of alpha variables to be determined 
+        # number of alpha variables to be determined
         self.nalph = 5
         nalph = self.nalph
 
@@ -500,7 +498,7 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_floc = gpuarray.empty(vsize, dtype=dtype)
 
         # cell local equilibrium distribution function
-        self.d_fe = gpuarray.empty_like(self.d_floc)         
+        self.d_fe = gpuarray.empty_like(self.d_floc)
 
         # scratch variable for storage for the moments
         self.d_mom10 = gpuarray.empty_like(self.d_floc)
@@ -508,7 +506,7 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_mom12 = gpuarray.empty_like(self.d_floc)
         self.d_mom2 = gpuarray.empty_like(self.d_floc)
 
-        # storage for reduced moments 
+        # storage for reduced moments
         self.d_moms = [gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
         self.d_equiMoms = [
             gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
@@ -529,7 +527,7 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # storage for alpha
         self.d_alpha = gpuarray.empty(nalph, dtype=dtype)
 
-        # residual 
+        # residual
         self.d_res = gpuarray.empty(1, dtype=dtype)
 
         # for defining ptr
@@ -537,7 +535,7 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # extract the template
         dfltargs = dict(cw=self.cw,
-            vsize=vsize, prefac=self._prefactor, 
+            vsize=vsize, prefac=self._prefactor,
             nalph=self.nalph, omega=self._omega,
             block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename)
         src = DottedTemplateLookup(
@@ -578,19 +576,19 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.mom2Kern = get_kernel(module, "mom2", 'PPP'+'PP'+'P'*4)
 
         # Prepare the equiDistInit kernel for execution
-        self.equiDistInitKern = get_kernel(module, 
+        self.equiDistInitKern = get_kernel(module,
             "equiDistInit", 'P'+'P'*nalph)
 
         # compute the moments of equilibrium distribution
-        self.equiDistMomKern = get_kernel(module, 
+        self.equiDistMomKern = get_kernel(module,
             "equiDistMom", 'PPPP'+'P'+'PPPP')
 
         # Prepare the equiDistCompute kernel for execution
-        self.equiDistComputeKern = get_kernel(module, 
+        self.equiDistComputeKern = get_kernel(module,
             "equiDistCompute", 'PPPP'+'PPP'+'P'*3)
 
         # Prepare the gaussElim kernel for execution
-        self.gaussElimKern = get_kernel(module, 
+        self.gaussElimKern = get_kernel(module,
             "gaussElim", 'PP'+'P'*(nalph*2+1))
 
         # Prepare the out kernel for execution
@@ -605,10 +603,10 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # multiplication kernel "specifically" for computing jacobian
         sA = (nalph, vsize)
         sB = (nalph, vsize)
-        sC = (nalph, nalph)        
+        sC = (nalph, nalph)
         self.jacMulFunc = lambda A, B, C: self.blas.mul(A, sA, B, sB, C, sC)
         self.d_J = gpuarray.empty(nalph*nalph, dtype=dtype)
-        
+
 
     def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
         # Asumption: d_arr_in1 == d_arr_in2
@@ -617,11 +615,11 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         d_Q = d_arr_out.ptr
 
         # construct d_floc from d_f0
-        self.flocKern.prepared_call(self.grid, self.block, 
+        self.flocKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_floc.ptr)
 
         # compute first moment
-        self.mom1Kern.prepared_call(self.grid, self.block, 
+        self.mom1Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
             self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
 
@@ -632,15 +630,15 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.sumFunc(self.d_mom12, self.d_moms[3]) # missing: ${cw}/d_moms[0]
 
         # insert the missing factor for the density and velocity
-        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+        self.mom01NormKern.prepared_call((1,1), (1,1,1),
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the second moments
-        self.mom2Kern.prepared_call(self.grid, self.block, 
+        self.mom2Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, self.d_mom2.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+            self.d_floc.ptr, self.d_mom2.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the temperature: missing factor cw/(1.5*d_moms[0])
@@ -656,7 +654,7 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         res, initRes, iterTol = 1.0, 1.0, 1e-10
         nIter, maxIters = 0, 20
 
-        # start the iteration        
+        # start the iteration
         while res>iterTol:
 
             self.equiDistComputeKern.prepared_call(self.grid, self.block,
@@ -665,21 +663,21 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
                 self.d_floc.ptr, self.d_fe.ptr, self.d_expM.ptr,
                 self.d_moms[1].ptr, self.d_moms[2].ptr, self.d_moms[3].ptr)
 
-            # form the jacobian 
+            # form the jacobian
             self.jacMulFunc(self.d_mBGK, self.d_expM, self.d_J)
 
             # compute moments (gemv/gemm is slower)
-            self.equiDistMomKern.prepared_call(self.grid, self.block, 
-                self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, 
-                self.d_cSqr.ptr, self.d_fe.ptr, 
-                self.d_mom10.ptr, self.d_mom11.ptr, 
+            self.equiDistMomKern.prepared_call(self.grid, self.block,
+                self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
+                self.d_cSqr.ptr, self.d_fe.ptr,
+                self.d_mom10.ptr, self.d_mom11.ptr,
                 self.d_mom12.ptr, self.d_mom2.ptr)
             self.sumFunc(self.d_fe, self.d_equiMoms[0])
             self.sumFunc(self.d_mom10, self.d_equiMoms[1])
             self.sumFunc(self.d_mom11, self.d_equiMoms[2])
             self.sumFunc(self.d_mom12, self.d_equiMoms[3])
             self.sumFunc(self.d_mom2, self.d_equiMoms[4])
-            
+
             # gaussian elimination
             self.gaussElimKern.prepared_call((1,1), (1,1,1),
                 self.d_res.ptr, self.d_alpha.ptr,
@@ -697,9 +695,9 @@ class DGFSBGKGLLScatteringModelStd(DGFSScatteringModelStd):
             if nIter>maxIters: break
 
         # outKern
-        self.outKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
-            self.d_moms[0].ptr, self.d_moms[4].ptr, 
+        self.outKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
+            self.d_moms[0].ptr, self.d_moms[4].ptr,
             self.d_fe.ptr, self.d_floc.ptr, d_Q)
 
 
@@ -722,7 +720,7 @@ class DGFSVHSGLLScatteringModelStd(DGFSVHSGLLScatteringModelStd):
 
     @property
     def prefacESBGK(self): return self._prefactorESBGK
-        
+
     def load_parameters(self):
         self._gamma = 0.
         self._omega = 1.
@@ -730,11 +728,11 @@ class DGFSVHSGLLScatteringModelStd(DGFSVHSGLLScatteringModelStd):
         eps = self.cfg.lookupfloat('scattering-model', 'eps');
         self._prefactor = nd/eps
         self._prefactorBGK = self._prefactorESBGK = self._prefactor
-        
-        print("Kn:", 1./eps)
-        print("prefactor:", self._prefactor)
-        print("prefactorBGK:", self._prefactorBGK)
-        print("prefactorESBGK:", self._prefactorESBGK)
+
+        logger.info("Kn: {}", 1./eps)
+        logger.info("prefactor: {}", self._prefactor)
+        logger.info("prefactorBGK: {}", self._prefactorBGK)
+        logger.info("prefactorESBGK: {}", self._prefactorESBGK)
 
     def perform_precomputation(self):
         super().perform_precomputation()
@@ -775,33 +773,32 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self._omega = omega
         self._Pr = Pr
         print("Pr:", self._Pr)
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
         # compute l
-        Nv = self.vm.Nv()
-        Nrho = self.vm.Nrho()
-        M = self.vm.M()
-        L = self.vm.L()
-        qz = self.vm.qz()
-        qw = self.vm.qw()
-        sz = self.vm.sz()
+        self.vm.Nv()
+        self.vm.Nrho()
+        self.vm.M()
+        self.vm.L()
+        self.vm.qz()
+        self.vm.qw()
+        self.vm.sz()
         vsize = self.vm.vsize()
         cv = self.vm.cv()
         self.cw = self.vm.cw()
 
         # the precision
         dtype = self.cfg.dtype
-        d = 'd'
 
-        # number of alpha variables to be determined 
+        # number of alpha variables to be determined
         self.nalph = 5
         nalph = self.nalph
 
         # number of variables for ESBGK
         self.nalphES = 10
-        nalphES = self.nalphES        
+        nalphES = self.nalphES
 
         # allocate velocity mesh in PyCUDA gpuarray
         self.d_cvx = self.vm.d_cvx()
@@ -814,10 +811,10 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_floc = gpuarray.empty(vsize, dtype=dtype)
 
         # cell local equilibrium distribution function (BGK)
-        self.d_fe = gpuarray.empty_like(self.d_floc)         
+        self.d_fe = gpuarray.empty_like(self.d_floc)
 
         # cell local equilibrium distribution function (ESBGK)
-        self.d_feES = gpuarray.empty_like(self.d_floc)         
+        self.d_feES = gpuarray.empty_like(self.d_floc)
 
         # scratch variable for storage for the moments
         self.d_mom10 = gpuarray.empty_like(self.d_floc)
@@ -833,7 +830,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_mom2es_yz = gpuarray.empty_like(self.d_floc)
         self.d_mom2es_zx = gpuarray.empty_like(self.d_floc)
 
-        # storage for reduced moments 
+        # storage for reduced moments
         self.d_moms = [gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
         self.d_equiMoms = [
             gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
@@ -857,7 +854,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
             (np.ones(vsize), # mass
             cv, # momentum
             cv[0,:]*cv[0,:], cv[1,:]*cv[1,:], cv[2,:]*cv[2,:], # normal stress
-            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:]  # off-diag 
+            cv[0,:]*cv[1,:], cv[1,:]*cv[2,:], cv[2,:]*cv[0,:]  # off-diag
         )) # 10 x vsize
         self.d_mBGKES = gpuarray.to_gpu((mBGKES).ravel()) # vsize x 10 flat
 
@@ -880,7 +877,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # storage for F (ESBGK)
         self.d_FES = gpuarray.empty(nalphES, dtype=dtype)
 
-        # residual 
+        # residual
         self.d_res = gpuarray.empty(1, dtype=dtype)
 
         # for defining ptr
@@ -888,9 +885,9 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # extract the template
         dfltargs = dict(cw=self.cw,
-            vsize=vsize, prefac=self._prefactor, 
+            vsize=vsize, prefac=self._prefactor,
             nalph=self.nalph, omega=self._omega, Pr=self._Pr,
-            block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename, 
+            block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename,
             nalphES=self.nalphES)
         src = DottedTemplateLookup(
             'dgfs1D.std.kernels.scattering', dfltargs
@@ -930,38 +927,38 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.mom2Kern = get_kernel(module, "mom2", 'PPP'+'PP'+'P'*4)
 
         # Prepare the equiDistInit kernel for execution
-        self.equiDistInitKern = get_kernel(module, 
+        self.equiDistInitKern = get_kernel(module,
             "equiDistInit", 'P'+'P'*nalph)
 
         # computes the equilibrium BGK distribution, and constructs expM
-        self.equiDistComputeKern = get_kernel(module, 
+        self.equiDistComputeKern = get_kernel(module,
             "equiDistCompute", 'PPPP'+'PPP'+'P'*3)
 
         # compute the moments of equilibrium BGK distribution
-        self.equiDistMomKern = get_kernel(module, 
+        self.equiDistMomKern = get_kernel(module,
             "equiDistMom", 'PPPP'+'P'+'PPPP')
 
         # Prepare the gaussElim kernel for execution
-        self.gaussElimKern = get_kernel(module, 
+        self.gaussElimKern = get_kernel(module,
             "gaussElim", 'PP'+'P'*(nalph*2+1))
 
         # compute the second moments for ESBGK
-        self.mom2ESKern = get_kernel(module, 
+        self.mom2ESKern = get_kernel(module,
             "mom2ES", 'PPP'+'PP'+'P'*4+'P'*6)
 
         # compute the second moments for ESBGK
-        self.mom2ESNormKern = get_kernel(module, 
+        self.mom2ESNormKern = get_kernel(module,
             "mom2ESNorm", 'P'+'P'*nalph+'P'*nalphES)
 
         # computes the equilibrium BGK distribution, and constructs expM
-        self.equiESDistComputeKern = get_kernel(module, 
+        self.equiESDistComputeKern = get_kernel(module,
             "equiESDistCompute", 'PPP'+'PPP'+'P'*3)
 
-        # Assemble the ES-BGK system 
-        self.assembleESKern = get_kernel(module, "assembleES", 
+        # Assemble the ES-BGK system
+        self.assembleESKern = get_kernel(module, "assembleES",
             'PP'+'P'*(nalphES+1))
 
-        # Update alpha for the ES-BGK system 
+        # Update alpha for the ES-BGK system
         self.updateAlphaESKern = get_kernel(module, "updateAlphaES", 'PP')
 
         # Prepare the out kernel for execution
@@ -976,14 +973,14 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # multiplication kernel "specifically" for computing BGK jacobian
         sA = (nalph, vsize)
         sB = (nalph, vsize)
-        sC = (nalph, nalph)        
+        sC = (nalph, nalph)
         self.jacMulFunc = lambda A, B, C: self.blas.mul(A, sA, B, sB, C, sC)
         self.d_J = gpuarray.empty(nalph*nalph, dtype=dtype)
-       
+
         # multiplication kernel "specifically" for computing ES jacobian
         sAES = (nalphES, vsize)
         sBES = (nalphES, vsize)
-        sCES = (nalphES, nalphES)        
+        sCES = (nalphES, nalphES)
         self.jacESMulFunc = lambda A, B, C: self.blas.mul(
             A, sAES, B, sBES, C, sCES)
         self.d_JES = gpuarray.empty(nalphES*nalphES, dtype=dtype)
@@ -991,19 +988,19 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # multiplication kernel "specifically" for computing ES dist moments
         sA_eMom = (1, vsize)
         sB_eMom = (nalphES, vsize)
-        sC_eMom = (1, nalphES)        
-        self.equiESDistMulFunc = lambda A, B, C: self.blas.mul(A, sA_eMom, 
+        sC_eMom = (1, nalphES)
+        self.equiESDistMulFunc = lambda A, B, C: self.blas.mul(A, sA_eMom,
             B, sB_eMom, C, sC_eMom)
         self.d_equiMomsES = gpuarray.empty(nalphES, dtype=dtype)
 
         #sA_eMom = (nalphES, vsize)
-        #self.equiESDistMulFunc = lambda A, B, C: self.blas.gemvO(A, sA_eMom, 
+        #self.equiESDistMulFunc = lambda A, B, C: self.blas.gemvO(A, sA_eMom,
         #    B, vsize, C)
         #self.d_equiMomsES = gpuarray.empty(nalphES, dtype=dtype)
 
         # define a cusolver handle
         self.cusp = CUDACUSOLVERKernels()
-        self.luSolveES = lambda A, B: self.cusp.solveLU(A, 
+        self.luSolveES = lambda A, B: self.cusp.solveLU(A,
             (nalphES, nalphES), B, nalphES)
 
     def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
@@ -1013,11 +1010,11 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         d_Q = d_arr_out.ptr
 
         # construct d_floc from d_f0
-        self.flocKern.prepared_call(self.grid, self.block, 
+        self.flocKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_floc.ptr)
 
         # compute first moment
-        self.mom1Kern.prepared_call(self.grid, self.block, 
+        self.mom1Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
             self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
 
@@ -1028,15 +1025,15 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         self.sumFunc(self.d_mom12, self.d_moms[3]) # missing: ${cw}/d_moms[0]
 
         # insert the missing factor for the density and velocity
-        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+        self.mom01NormKern.prepared_call((1,1), (1,1,1),
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the second moments
-        self.mom2Kern.prepared_call(self.grid, self.block, 
+        self.mom2Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, self.d_mom2.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+            self.d_floc.ptr, self.d_mom2.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the temperature: missing factor cw/(1.5*d_moms[0])
@@ -1052,7 +1049,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         res, initRes, iterTol = 1.0, 1.0, 1e-10
         nIter, maxIters = 0, 20
 
-        # start the iteration        
+        # start the iteration
         while res>iterTol:
 
             self.equiDistComputeKern.prepared_call(self.grid, self.block,
@@ -1061,21 +1058,21 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
                 self.d_floc.ptr, self.d_fe.ptr, self.d_expM.ptr,
                 self.d_moms[1].ptr, self.d_moms[2].ptr, self.d_moms[3].ptr)
 
-            # form the jacobian 
+            # form the jacobian
             self.jacMulFunc(self.d_mBGK, self.d_expM, self.d_J)
 
             # compute moments (gemv/gemm is slower)
-            self.equiDistMomKern.prepared_call(self.grid, self.block, 
-                self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, 
-                self.d_cSqr.ptr, self.d_fe.ptr, 
-                self.d_mom10.ptr, self.d_mom11.ptr, 
+            self.equiDistMomKern.prepared_call(self.grid, self.block,
+                self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
+                self.d_cSqr.ptr, self.d_fe.ptr,
+                self.d_mom10.ptr, self.d_mom11.ptr,
                 self.d_mom12.ptr, self.d_mom2.ptr)
             self.sumFunc(self.d_fe, self.d_equiMoms[0])
             self.sumFunc(self.d_mom10, self.d_equiMoms[1])
             self.sumFunc(self.d_mom11, self.d_equiMoms[2])
             self.sumFunc(self.d_mom12, self.d_equiMoms[3])
             self.sumFunc(self.d_mom2, self.d_equiMoms[4])
-            
+
             # gaussian elimination
             self.gaussElimKern.prepared_call((1,1), (1,1,1),
                 self.d_res.ptr, self.d_alpha.ptr,
@@ -1092,22 +1089,22 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
             # break if the number of iterations are greater
             if nIter>maxIters: break
 
-        
+
         # Now the ESBGK loop
 
         # compute the second moments for ESBGK
-        self.mom2ESKern.prepared_call(self.grid, self.block, 
+        self.mom2ESKern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, 
-            self.d_fe.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
-            self.d_moms[2].ptr, self.d_moms[3].ptr, 
-            self.d_mom2es_xx.ptr, self.d_mom2es_yy.ptr, 
-            self.d_mom2es_zz.ptr, self.d_mom2es_xy.ptr, 
+            self.d_floc.ptr,
+            self.d_fe.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
+            self.d_moms[2].ptr, self.d_moms[3].ptr,
+            self.d_mom2es_xx.ptr, self.d_mom2es_yy.ptr,
+            self.d_mom2es_zz.ptr, self.d_mom2es_xy.ptr,
             self.d_mom2es_yz.ptr, self.d_mom2es_zx.ptr
         )
 
-        # reduce the moments 
+        # reduce the moments
         self.sumFunc(self.d_mom2es_xx, self.d_momsES[4])  # missing: ${cw}/d_moms[0]
         self.sumFunc(self.d_mom2es_yy, self.d_momsES[5]) # missing: ${cw}/d_moms[0]
         self.sumFunc(self.d_mom2es_zz, self.d_momsES[6]) # missing: ${cw}/d_moms[0]
@@ -1118,7 +1115,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         # normalize the moments (incorporates the missing factor)
         # (Also transfers first four entries of d_moms to d_momsES)
         # initializes alphaES
-        self.mom2ESNormKern.prepared_call((1,1), (1,1,1), 
+        self.mom2ESNormKern.prepared_call((1,1), (1,1,1),
             self.d_alphaES.ptr,
             *self.ptr(list(self.d_moms + self.d_momsES))
         )
@@ -1127,7 +1124,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
         res, initRes, iterTol = 1.0, 1.0, 1e-10
         nIter, maxIters = 0, 40
 
-        # start the ESBGK iteration        
+        # start the ESBGK iteration
         while res>iterTol:
 
             self.equiESDistComputeKern.prepared_call(self.grid, self.block,
@@ -1167,9 +1164,9 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
             if nIter>maxIters: break
 
         # outKern
-        self.outKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
-            self.d_moms[0].ptr, self.d_moms[4].ptr, 
+        self.outKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
+            self.d_moms[0].ptr, self.d_moms[4].ptr,
             self.d_feES.ptr, self.d_floc.ptr, d_Q)
 
 
@@ -1183,7 +1180,7 @@ class DGFSESBGKGLLScatteringModelStd(DGFSScatteringModelStd):
 
 """
 BGK "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
@@ -1208,27 +1205,26 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
         self._prefactor = (t0*Pr*p0/visc)
         self._omega = omega
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
         # compute l
-        Nv = self.vm.Nv()
-        Nrho = self.vm.Nrho()
-        M = self.vm.M()
-        L = self.vm.L()
-        qz = self.vm.qz()
-        qw = self.vm.qw()
-        sz = self.vm.sz()
+        self.vm.Nv()
+        self.vm.Nrho()
+        self.vm.M()
+        self.vm.L()
+        self.vm.qz()
+        self.vm.qw()
+        self.vm.sz()
         vsize = self.vm.vsize()
         cv = self.vm.cv()
         self.cw = self.vm.cw()
 
         # the precision
         dtype = self.cfg.dtype
-        d = 'd'
 
-        # number of alpha variables to be determined 
+        # number of alpha variables to be determined
         self.nalph = 5
         nalph = self.nalph
 
@@ -1243,7 +1239,7 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_floc = gpuarray.empty(vsize, dtype=dtype)
 
         # cell local equilibrium distribution function
-        self.d_fe = gpuarray.empty_like(self.d_floc)         
+        self.d_fe = gpuarray.empty_like(self.d_floc)
 
         # scratch variable for storage for the moments
         self.d_mom10 = gpuarray.empty_like(self.d_floc)
@@ -1251,7 +1247,7 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_mom12 = gpuarray.empty_like(self.d_floc)
         self.d_mom2 = gpuarray.empty_like(self.d_floc)
 
-        # storage for reduced moments 
+        # storage for reduced moments
         self.d_moms = [gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
 
         # block size for running the kernel
@@ -1260,7 +1256,7 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # extract the template
         dfltargs = dict(cw=self.cw,
-            vsize=vsize, prefac=self._prefactor, 
+            vsize=vsize, prefac=self._prefactor,
             nalph=self.nalph, omega=self._omega,
             block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename)
         src = DottedTemplateLookup(
@@ -1301,16 +1297,16 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.mom2Kern = get_kernel(module, "mom2", 'PPP'+'PP'+'P'*4)
 
         # Prepare the equiDistInit kernel for execution
-        self.equiDistInitKern = get_kernel(module, 
+        self.equiDistInitKern = get_kernel(module,
             "equiDistInit", 'P'*nalph)
 
         # Prepare the out kernel for execution
-        self.outKern = get_kernel(module, "output", 
+        self.outKern = get_kernel(module, "output",
             'III'+'P'*nalph+'PPP'+'PPP')
 
         # required by the child class (may be deleted by the child)
         self.module = module
-        
+
 
     def fs(self, d_arr_in, d_arr_in2, d_arr_out, elem, modein, modeout):
         # Asumption: d_arr_in1 == d_arr_in2
@@ -1319,11 +1315,11 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         d_Q = d_arr_out.ptr
 
         # construct d_floc from d_f0
-        self.flocKern.prepared_call(self.grid, self.block, 
+        self.flocKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_floc.ptr)
 
         # compute first moment
-        self.mom1Kern.prepared_call(self.grid, self.block, 
+        self.mom1Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
             self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
 
@@ -1334,15 +1330,15 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.sumFunc(self.d_mom12, self.d_moms[3]) # missing: ${cw}/d_moms[0]
 
         # insert the missing factor for the density and velocity
-        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+        self.mom01NormKern.prepared_call((1,1), (1,1,1),
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the second moments
-        self.mom2Kern.prepared_call(self.grid, self.block, 
+        self.mom2Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, self.d_mom2.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+            self.d_floc.ptr, self.d_mom2.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the temperature: missing factor cw/(1.5*d_moms[0])
@@ -1351,16 +1347,16 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         # we compute alpha (initial guess)
         # the missing factor in d_moms[4] is added here
         self.equiDistInitKern.prepared_call((1,1), (1,1,1),
-            self.d_moms[0].ptr, self.d_moms[1].ptr, self.d_moms[2].ptr, 
+            self.d_moms[0].ptr, self.d_moms[1].ptr, self.d_moms[2].ptr,
             self.d_moms[3].ptr, self.d_moms[4].ptr)
 
         # outKern
-        self.outKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
-            self.d_moms[0].ptr, 
+        self.outKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
+            self.d_moms[0].ptr,
             self.d_moms[1].ptr, self.d_moms[2].ptr, self.d_moms[3].ptr,
-            self.d_moms[4].ptr, 
-            self.d_fe.ptr, self.d_floc.ptr, d_Q, 
+            self.d_moms[4].ptr,
+            self.d_fe.ptr, self.d_floc.ptr, d_Q,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr)
 
 
@@ -1370,7 +1366,7 @@ class DGFSBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
 """
 ESBGK "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
@@ -1397,33 +1393,32 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self._omega = omega
         self._Pr = Pr
         print("Pr:", self._Pr)
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
         # compute l
-        Nv = self.vm.Nv()
-        Nrho = self.vm.Nrho()
-        M = self.vm.M()
-        L = self.vm.L()
-        qz = self.vm.qz()
-        qw = self.vm.qw()
-        sz = self.vm.sz()
+        self.vm.Nv()
+        self.vm.Nrho()
+        self.vm.M()
+        self.vm.L()
+        self.vm.qz()
+        self.vm.qw()
+        self.vm.sz()
         vsize = self.vm.vsize()
         cv = self.vm.cv()
         self.cw = self.vm.cw()
 
         # the precision
         dtype = self.cfg.dtype
-        d = 'd'
 
-        # number of alpha variables to be determined 
+        # number of alpha variables to be determined
         self.nalph = 5
         nalph = self.nalph
 
         # number of variables for ESBGK
         self.nalphES = 10
-        nalphES = self.nalphES        
+        nalphES = self.nalphES
 
         # allocate velocity mesh in PyCUDA gpuarray
         self.d_cvx = self.vm.d_cvx()
@@ -1436,10 +1431,10 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_floc = gpuarray.empty(vsize, dtype=dtype)
 
         # cell local equilibrium distribution function (BGK)
-        self.d_fe = gpuarray.empty_like(self.d_floc)         
+        self.d_fe = gpuarray.empty_like(self.d_floc)
 
         # cell local equilibrium distribution function (ESBGK)
-        self.d_feES = gpuarray.empty_like(self.d_floc)         
+        self.d_feES = gpuarray.empty_like(self.d_floc)
 
         # scratch variable for storage for the moments
         self.d_mom10 = gpuarray.empty_like(self.d_floc)
@@ -1455,7 +1450,7 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_mom2es_yz = gpuarray.empty_like(self.d_floc)
         self.d_mom2es_zx = gpuarray.empty_like(self.d_floc)
 
-        # storage for reduced moments 
+        # storage for reduced moments
         self.d_moms = [gpuarray.empty(1,dtype=dtype) for i in range(nalph)]
 
         # storage for reduced moments for ESBGK
@@ -1475,9 +1470,9 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # extract the template
         dfltargs = dict(cw=self.cw,
-            vsize=vsize, prefac=self._prefactor, 
+            vsize=vsize, prefac=self._prefactor,
             nalph=self.nalph, omega=self._omega, Pr=self._Pr,
-            block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename, 
+            block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename,
             nalphES=self.nalphES)
         src = DottedTemplateLookup(
             'dgfs1D.std.kernels.scattering', dfltargs
@@ -1517,23 +1512,23 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.mom2Kern = get_kernel(module, "mom2", 'PPP'+'PP'+'P'*4)
 
         # Prepare the equiDistInit kernel for execution
-        self.equiDistInitKern = get_kernel(module, 
+        self.equiDistInitKern = get_kernel(module,
             "equiDistInit", 'P'*nalph)
 
         # Prepare the equiDistCompute kernel for execution
-        self.equiDistComputeKern = get_kernel(module, 
+        self.equiDistComputeKern = get_kernel(module,
             "equiDistCompute", 'PPPP'+'P'*nalph)
 
         # compute the second moments for ESBGK
-        self.mom2ESKern = get_kernel(module, 
+        self.mom2ESKern = get_kernel(module,
             "mom2ES", 'PPP'+'PP'+'P'*4+'P'*6)
 
         # compute the second moments for ESBGK
-        self.mom2ESNormKern = get_kernel(module, 
+        self.mom2ESNormKern = get_kernel(module,
             "mom2ESNorm", 'P'*nalph+'P'*nalphES)
 
         # computes the equilibrium BGK distribution, and constructs expM
-        self.equiESDistComputeKern = get_kernel(module, 
+        self.equiESDistComputeKern = get_kernel(module,
             "equiESDistCompute", 'PPP'+'P'+'P'*nalphES)
 
         # Prepare the out kernel for execution
@@ -1549,11 +1544,11 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         d_Q = d_arr_out.ptr
 
         # construct d_floc from d_f0
-        self.flocKern.prepared_call(self.grid, self.block, 
+        self.flocKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_floc.ptr)
 
         # compute first moment
-        self.mom1Kern.prepared_call(self.grid, self.block, 
+        self.mom1Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
             self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
 
@@ -1564,15 +1559,15 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.sumFunc(self.d_mom12, self.d_moms[3]) # missing: ${cw}/d_moms[0]
 
         # insert the missing factor for the density and velocity
-        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+        self.mom01NormKern.prepared_call((1,1), (1,1,1),
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the second moments
-        self.mom2Kern.prepared_call(self.grid, self.block, 
+        self.mom2Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, self.d_mom2.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
+            self.d_floc.ptr, self.d_mom2.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
             self.d_moms[2].ptr, self.d_moms[3].ptr)
 
         # compute the temperature: missing factor cw/(1.5*d_moms[0])
@@ -1589,22 +1584,22 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
             self.d_fe.ptr, *self.ptr(self.d_moms)
         )
-        
+
         # Now the ESBGK relaxation
 
         # compute the second moments for ESBGK
-        self.mom2ESKern.prepared_call(self.grid, self.block, 
+        self.mom2ESKern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, 
-            self.d_fe.ptr, 
-            self.d_moms[0].ptr, self.d_moms[1].ptr, 
-            self.d_moms[2].ptr, self.d_moms[3].ptr, 
-            self.d_mom2es_xx.ptr, self.d_mom2es_yy.ptr, 
-            self.d_mom2es_zz.ptr, self.d_mom2es_xy.ptr, 
+            self.d_floc.ptr,
+            self.d_fe.ptr,
+            self.d_moms[0].ptr, self.d_moms[1].ptr,
+            self.d_moms[2].ptr, self.d_moms[3].ptr,
+            self.d_mom2es_xx.ptr, self.d_mom2es_yy.ptr,
+            self.d_mom2es_zz.ptr, self.d_mom2es_xy.ptr,
             self.d_mom2es_yz.ptr, self.d_mom2es_zx.ptr
         )
 
-        # reduce the moments 
+        # reduce the moments
         self.sumFunc(self.d_mom2es_xx, self.d_momsES[4])  # missing: ${cw}/d_moms[0]
         self.sumFunc(self.d_mom2es_yy, self.d_momsES[5]) # missing: ${cw}/d_moms[0]
         self.sumFunc(self.d_mom2es_zz, self.d_momsES[6]) # missing: ${cw}/d_moms[0]
@@ -1615,7 +1610,7 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         # normalize the moments (incorporates the missing factor)
         # (Also transfers first four entries of d_moms to d_momsES)
         # initializes alphaES
-        self.mom2ESNormKern.prepared_call((1,1), (1,1,1), 
+        self.mom2ESNormKern.prepared_call((1,1), (1,1,1),
             *self.ptr(list(self.d_moms + self.d_momsES))
         )
 
@@ -1626,9 +1621,9 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         )
 
         # outKern
-        self.outKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
-            self.d_moms[0].ptr, self.d_moms[4].ptr, 
+        self.outKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
+            self.d_moms[0].ptr, self.d_moms[4].ptr,
             self.d_feES.ptr, self.d_floc.ptr, d_Q)
 
 
@@ -1637,7 +1632,7 @@ class DGFSESBGKDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
 """
 BGK-Shakov "Iteration free" direct approach
-The argument is: If the velocity grid is isotropic, and large enough; 
+The argument is: If the velocity grid is isotropic, and large enough;
 the error in conservation would be spectrally low
 """
 class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
@@ -1665,25 +1660,24 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self._omega = omega
         self._Pr = Pr
         print("Pr:", self._Pr)
-        print("prefactor:", self._prefactor)
+        logger.info("prefactor: {}", self._prefactor)
 
     def perform_precomputation(self):
         # Precompute aa, bb1, bb2 (required for kernel)
         # compute l
-        Nv = self.vm.Nv()
-        Nrho = self.vm.Nrho()
-        M = self.vm.M()
-        L = self.vm.L()
-        qz = self.vm.qz()
-        qw = self.vm.qw()
-        sz = self.vm.sz()
+        self.vm.Nv()
+        self.vm.Nrho()
+        self.vm.M()
+        self.vm.L()
+        self.vm.qz()
+        self.vm.qw()
+        self.vm.sz()
         vsize = self.vm.vsize()
-        cv = self.vm.cv()
+        self.vm.cv()
         self.cw = self.vm.cw()
 
         # the precision
         dtype = self.cfg.dtype
-        d = 'd'
 
         # number of variables for ESBGK
         self.nalphSk = 8
@@ -1699,7 +1693,7 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.d_floc = gpuarray.empty(vsize, dtype=dtype)
 
         # cell local equilibrium distribution function (Shakov)
-        self.d_feSk = gpuarray.empty_like(self.d_floc)         
+        self.d_feSk = gpuarray.empty_like(self.d_floc)
 
         # scratch variable for storage for the moments
         self.d_mom10 = gpuarray.empty_like(self.d_floc)
@@ -1729,7 +1723,7 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # extract the template
         dfltargs = dict(cw=self.cw,
-            vsize=vsize, prefac=self._prefactor, 
+            vsize=vsize, prefac=self._prefactor,
             nalphSk=self.nalphSk, omega=self._omega, Pr=self._Pr,
             block_size=self.block[0], Ne=self._Ne, dtype=self.cfg.dtypename)
         src = DottedTemplateLookup(
@@ -1767,15 +1761,15 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.mom01NormKern = get_kernel(module, "mom01Norm", 'PPPP')
 
         # compute the second and third moments for Shakov
-        self.mom23SkKern = get_kernel(module, 
+        self.mom23SkKern = get_kernel(module,
             "mom23Sk", 'PPP'+'P'+'P'*4+'P'*4)
 
         # compute the second moments for ESBGK
-        self.mom23SkNormKern = get_kernel(module, 
+        self.mom23SkNormKern = get_kernel(module,
             "mom23SkNorm", 'P'*nalphSk)
 
         # computes the equilibrium BGK distribution, and constructs expM
-        self.equiSkDistComputeKern = get_kernel(module, 
+        self.equiSkDistComputeKern = get_kernel(module,
             "equiSkDistCompute", 'PPP'+'P'+'P'*nalphSk)
 
         # Prepare the out kernel for execution
@@ -1792,11 +1786,11 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         d_Q = d_arr_out.ptr
 
         # construct d_floc from d_f0
-        self.flocKern.prepared_call(self.grid, self.block, 
+        self.flocKern.prepared_call(self.grid, self.block,
             elem, modein, d_f0, self.d_floc.ptr)
 
         # compute first moment
-        self.mom1Kern.prepared_call(self.grid, self.block, 
+        self.mom1Kern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr, self.d_floc.ptr,
             self.d_mom10.ptr, self.d_mom11.ptr, self.d_mom12.ptr)
 
@@ -1807,22 +1801,22 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         self.sumFunc(self.d_mom12, self.d_momsSk[3]) # missing: ${cw}/d_moms[0]
 
         # insert the missing factor for the density and velocity
-        self.mom01NormKern.prepared_call((1,1), (1,1,1), 
-            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr, 
+        self.mom01NormKern.prepared_call((1,1), (1,1,1),
+            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr,
             self.d_momsSk[2].ptr, self.d_momsSk[3].ptr)
 
         # compute the second and third moments for Shakov
-        self.mom23SkKern.prepared_call(self.grid, self.block, 
+        self.mom23SkKern.prepared_call(self.grid, self.block,
             self.d_cvx.ptr, self.d_cvy.ptr, self.d_cvz.ptr,
-            self.d_floc.ptr, 
-            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr, 
-            self.d_momsSk[2].ptr, self.d_momsSk[3].ptr, 
+            self.d_floc.ptr,
+            self.d_momsSk[0].ptr, self.d_momsSk[1].ptr,
+            self.d_momsSk[2].ptr, self.d_momsSk[3].ptr,
             self.d_mom2.ptr,
-            self.d_mom3sk_x.ptr, self.d_mom3sk_y.ptr, 
+            self.d_mom3sk_x.ptr, self.d_mom3sk_y.ptr,
             self.d_mom3sk_z.ptr
         )
 
-        # reduce the moments 
+        # reduce the moments
         self.sumFunc(self.d_mom2, self.d_momsSk[4])
         self.sumFunc(self.d_mom3sk_x, self.d_momsSk[5])  # missing: ${cw}/d_moms[0]
         self.sumFunc(self.d_mom3sk_y, self.d_momsSk[6]) # missing: ${cw}/d_moms[0]
@@ -1830,7 +1824,7 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
 
         # normalize the moments (incorporates the missing factor)
         # the missing factor in d_moms[4] (cw/(1.5*d_moms[0])) is added here
-        self.mom23SkNormKern.prepared_call((1,1), (1,1,1), 
+        self.mom23SkNormKern.prepared_call((1,1), (1,1,1),
             *self.ptr(self.d_momsSk)
         )
 
@@ -1841,9 +1835,9 @@ class DGFSShakovDirectGLLScatteringModelStd(DGFSScatteringModelStd):
         )
 
         # outKern
-        self.outKern.prepared_call(self.grid, self.block, 
-            elem, modein, modeout, 
-            self.d_momsSk[0].ptr, self.d_momsSk[4].ptr, 
+        self.outKern.prepared_call(self.grid, self.block,
+            elem, modein, modeout,
+            self.d_momsSk[0].ptr, self.d_momsSk[4].ptr,
             self.d_feSk.ptr, self.d_floc.ptr, d_Q)
 
 
@@ -1865,7 +1859,7 @@ class DGFSBGKDirectGLL2ScatteringModelStd(DGFSScatteringModelAstd):
         if(self.U == None):
             lda = M.shape[0]//self.vm.vsize()
             self.U = gpuarray.empty(self.nalph, dtype=self.cfg.dtype)
-            self.M = 
+            self.M =
 """
 
 
