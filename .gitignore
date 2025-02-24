@@ -21,9 +21,14 @@ doc/build/
 *.png
 *.log
 *.dat
+*.pdf
 
 back/
 bench/
 __pycache__
 
 .README
+
+# post-processing releated
+**/postProcess*
+**/plot.py
