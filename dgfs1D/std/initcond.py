@@ -397,14 +397,15 @@ class DGFSSodShockNonDimTubeInitConditionStd(DGFSInitConditionStd):
     def perform_precomputation(self):
         pass
 
-    def maxwellian(self, rhoini, uxini, uyini, uzini, Tini):
-        uini = np.array([uxini, uyini, uzini]).reshape((3,1))
-        soln = ((rhoini/(np.pi*Tini)**1.5)*
-            np.exp(-np.sum((self.vm.cv()-uini)**2, axis=0)/Tini)
+    def maxwellian(self, rhoini, uxini, Tini):
+        z = np.zeros_like(uxini)
+        uini = np.array([uxini, z, z]).reshape((3,-1))
+        soln = ((rhoini[...,None]/(np.pi*Tini[...,None])**1.5)*
+                np.exp(-np.sum((self.vm.cv()[:, None, :]-uini[..., None])**2, axis=0)/Tini[...,None])
         )
 
         # test the distribution support
-        rho_bulk = np.sum(soln)*self.vm.cw()
+        rho_bulk = np.sum(soln*self.vm.cw()[None,...], axis=1)
         if( not(
             np.allclose(rhoini, rho_bulk, atol=1e-5)
         )):
@@ -430,20 +431,12 @@ class DGFSSodShockNonDimTubeInitConditionStd(DGFSInitConditionStd):
         vars.update(dict({'x': coords}))
 
         # Properties on the left
-        #rhol = self.cfg.lookupfloat(self.name,'rho-left')
-        #Tl = self.cfg.lookupfloat(self.name,'T-left')
-        #ulx = self.cfg.lookupordefault(self.name,'ux-left', 0.)
         rhol, Tl, ulx = map(lambda v: npeval(self.cfg.lookupexpr(self.name,v),vars), \
                 ('rho-left', 'T-left', 'ux-left'))
-        #Ml = self.maxwellian(rhol, ulx, 0., 0., Tl)
 
         # Properties on the right
-        #rhor = self.cfg.lookupfloat(self.name,'rho-right')
-        #Tr = self.cfg.lookupfloat(self.name,'T-right')
-        #urx = self.cfg.lookupordefault(self.name,'ux-right', 0.)
         rhor, Tr, urx = map(lambda v: npeval(self.cfg.lookupexpr(self.name, v),vars), \
                 ('rho-right', 'T-right', 'ux-right'))
-        #Mr = self.maxwellian(rhor, urx, 0., 0., Tr)
 
         def isf(data): return isinstance(data, (self.cfg.dtype, float))
         def make_shape(ds): return np.full((Nq, Ne), ds) if isf(ds) else ds
@@ -452,10 +445,10 @@ class DGFSSodShockNonDimTubeInitConditionStd(DGFSInitConditionStd):
 
         xMid = self.cfg.lookupfloat(self.name,'xMid')
 
-        for upt, elem in ndrange(Nq, Ne):
-          if coords[upt,elem] <= xMid:
-            Ml = self.maxwellian(rhol[upt,elem], ulx[upt,elem], 0., 0., Tl[upt,elem])
-            scal_upts_full[upt, elem, :] = Ml
-          else:
-            Mr = self.maxwellian(rhor[upt,elem], urx[upt,elem], 0., 0., Tr[upt,elem])
-            scal_upts_full[upt, elem, :] = Mr
+        N = self.vm.vsize()
+        left = coords.ravel() <= xMid
+        right = coords.ravel() > xMid
+        Ml = self.maxwellian(rhol.ravel()[left], ulx.ravel()[left], Tl.ravel()[left])
+        scal_upts_full.reshape((-1, N))[left, :] = Ml
+        Mr = self.maxwellian(rhor.ravel()[right], urx.ravel()[right], Tr.ravel()[right])
+        scal_upts_full.reshape((-1, N))[right, :] = Mr
