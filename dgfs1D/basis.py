@@ -304,7 +304,7 @@ class NodalSemGLL(Basis):
         # upwind discretization operator: V^{-1} = V^T
         Vo, _ = np.linalg.qr(V)
         sigma = np.zeros((self._Nq,))
-        sigma[-1] = -1
+        sigma[-1] = self.cfg.lookupordefault(basissect, 'sigma', -1)
         S = (Vo @ np.diag(sigma) @ Vo.T)
         invP = np.diag(1 / self._w)
         Dp = D + 0.5 * np.matmul(S, invP)
